@@ -4,7 +4,7 @@ Graduate term project for **CS 7329 Reinforcement Learning** at Southern Methodi
 
 What do agents gain from talking in a hidden-role game? This project trains multi-agent reinforcement learning agents to play six-player *The Resistance: Avalon*, first **in silence** — using only public actions such as team proposals, votes and mission results — and then with a **structured five-slot message channel**. Comparing the two isolates what explicit communication adds to win rates, to strategic behavior, and to the information carried by public actions.
 
-**Status:** research design complete; implementation in progress.
+**Status:** research design complete; the silent baseline S (environment, scripted players, self-play PPO, evaluation) is implemented and tested; communication configurations are next.
 
 ## Research Questions
 
@@ -48,7 +48,9 @@ What do agents gain from talking in a hidden-role game? This project trains mult
 
 ## Method
 
-- **Agents:** recurrent independent PPO with an MLP + GRU actor–critic for each team. Parameters are shared within a team, actions are legal-action masked, and each game phase has its own action head.
+- **Agents:** independent PPO with one actor–critic per team, shared by all seats of that team.
+  - **Input:** a fixed-length information-state vector. It holds the player's role, its role-specific private knowledge, the complete public history (at most 5 quests × 5 proposals) and its own quest cards, all in seat-relative coordinates. Because this history is bounded, the vector is a complete information state, so the actor and critic can be plain MLPs with no recurrence.
+  - **Actions:** a flat 30-way action space covering team proposals, votes, quest cards and the assassination; illegal actions are masked before the softmax.
 - **Messages and reward:** message heads are trained RIAL-style with the same terminal ±1 reward (γ = 1, GAE).
 - **Self-play:** agents train against an opponent pool that mixes the current, historical and rule-based policies.
 - **Silent-first training:**
@@ -69,24 +71,77 @@ What do agents gain from talking in a hidden-role game? This project trains mult
 │   └── src/                 python-docx scripts that generate both documents
 ├── references/              Reading notes on the core papers (PDFs are not tracked)
 ├── src/avalon_rl/
-│   ├── env/                 Six-player game engine and observation filtering
-│   ├── comm/                Five-slot message protocol and masks
-│   ├── agents/              Recurrent actor–critic, random and rule-based opponents
-│   ├── training/            PPO, self-play opponent pool, silent-first branch training
-│   └── evaluation/          Communication diagnostics, frozen evaluation, statistics
-├── configs/                 Experiment configurations (S, M, M+k, F)
-├── scripts/                 Training and evaluation entry points
-├── tests/                   Rule, information-leakage and message-mask tests
+│   ├── env/                 Rules, game state machine, action space, information-state encoding
+│   ├── agents/              Actor–critic policy, random and rule-based players
+│   ├── training/            Trajectory recording and GAE, PPO update, opponent pool, trainer
+│   ├── evaluation/          Paired frozen evaluation and win-rate decomposition
+│   ├── comm/                Five-slot message protocol (next step)
+│   ├── runner.py            Plays many games in lockstep with batched decisions
+│   └── config.py            YAML-backed training configuration
+├── configs/                 baseline_silent.yaml (S) and pilot_silent.yaml (short pilot)
+├── scripts/                 train.py, evaluate.py, benchmark.py
+├── tests/                   Rules, information leakage, observation encoding, GAE, a short training run
 ├── notebooks/               Analysis notebooks
-└── results/                 Curated figures and tables
+├── results/                 Curated figures and tables
+└── runs/                    Training outputs (not tracked)
 ```
+
+## Quick Start
+
+Python 3.10 or newer.
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+pytest                                                     # rules, leakage, GAE and a short training run
+python scripts/benchmark.py --games 2048                   # simulation and update throughput on this machine
+python scripts/train.py --config configs/pilot_silent.yaml # 2,048-game pilot
+python scripts/train.py --config configs/baseline_silent.yaml --seed 0
+python scripts/evaluate.py --checkpoint runs/baseline_silent/seed0/latest.pt --games 1000
+```
+
+- **Outputs:** each run writes `config.yaml`, `metrics.jsonl` (one JSON object per iteration) and checkpoints to `runs/<name>/seed<k>/`.
+- **Changing settings:** override any config key with `--set`, for example `--set ppo.lr=1e-4`.
+- **Continuing a run:** `--resume` continues an interrupted run.
+- **Starting from saved weights:** `--init-from` loads network weights only, for warm starts and the branch training of the communication configurations.
+
+**Reference lines.** These come from 3,000 paired games with the default scripted players; trained policies should beat them.
+
+| Matchup (good vs evil) | Good win rate |
+|---|---|
+| random vs random | ≈ 0.26 |
+| rule vs rule | ≈ 0.14 |
+| rule vs random | ≈ 0.65 |
+| random vs rule | ≈ 0.01 |
+
+## Running on a Remote GPU Machine
+
+Development happens locally; experiments run over SSH on a separate GPU laptop.
+
+**Where the time goes.** The networks are small and rollouts run on the CPU, so throughput comes mostly from running several seeds in parallel. The GPU only speeds up the PPO update. On an Apple M5 CPU, self-play collects about 500 games/s, so a 100,000-game run takes minutes rather than hours. Run `scripts/benchmark.py` on the remote machine before fixing the budget.
+
+```bash
+git clone https://github.com/zhiqiH/Avalon-Signals.git && cd Avalon-Signals
+python -m venv .venv && source .venv/bin/activate
+pip install torch --index-url https://download.pytorch.org/whl/cu128   # RTX 50-series needs a CUDA 12.8 build
+pip install -e ".[dev]" && pytest
+tmux new -s avalon                                                      # keeps runs alive after SSH disconnects
+for s in 0 1 2; do
+  python scripts/train.py --config configs/baseline_silent.yaml --seed $s --device cuda --threads 2 \
+    > runs_seed$s.log 2>&1 &
+done
+```
+
+Copy results back with `rsync -av <host>:Avalon-Signals/runs/ runs/`.
+
+On native Windows, use WSL2 for `tmux` and the commands above; alternatively, activate with `.venv\Scripts\activate` and start each seed in its own persistent session.
 
 ## Design Documents
 
 | Document | Contents |
 |---|---|
-| [Research Design](docs/Avalon_Research_Design.docx) | Research questions, game setup, message protocol, experimental design, metrics and evidence standards, scope of conclusions |
-| [Implementation Spec](docs/Avalon_Implementation_Spec.docx) | Must-have vs. optional components, environment, message encoding, networks, training pipeline, diagnostics, evaluation, logging, compute, optional natural-language extension |
+| Research Design ([PDF](docs/Avalon_Research_Design.pdf), [DOCX](docs/Avalon_Research_Design.docx)) | Research questions, game setup, message protocol, experimental design, metrics and evidence standards, scope of conclusions |
+| Implementation Spec ([DOCX](docs/Avalon_Implementation_Spec.docx)) | Must-have vs. optional components, environment, message encoding, networks, training pipeline, diagnostics, evaluation, logging, compute, optional natural-language extension |
 
 To rebuild the documents:
 

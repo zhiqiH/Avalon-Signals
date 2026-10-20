@@ -1,0 +1,37 @@
+# Pilot for the silent baseline: a short run to check throughput and that learning moves at all.
+# Same settings as baseline_silent.yaml except for the budget and logging frequency.
+name: pilot_silent
+seed: 0
+device: auto
+total_games: 2048
+games_per_iter: 256
+checkpoint_every: 4
+out_dir: runs
+
+model:
+  hidden_sizes: [256, 256]
+
+ppo:
+  lr: 3.0e-4
+  epochs: 4
+  minibatch_size: 2048
+  clip_coef: 0.2
+  vf_coef: 0.5
+  ent_coef: 0.01
+  max_grad_norm: 0.5
+  gamma: 1.0
+  gae_lambda: 0.95
+  norm_adv: true
+
+opponents:
+  p_self: 0.5
+  p_pool: 0.25
+  p_rule: 0.25
+  snapshot_every: 2
+  pool_size: 20
+  rule_fail_prob: 0.9
+  rule_merlin_knowledge_prob: 0.5   # rule Merlin acts on his knowledge only half the time
+
+eval:
+  every: 4
+  games: 256

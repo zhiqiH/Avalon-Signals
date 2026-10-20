@@ -1,0 +1,34 @@
+# Third-party papers and their extracted text are not redistributable;
+# references/README.md lists them with links instead.
+references/*.pdf
+references/text/
+
+# Course-provided materials
+course/
+
+# Superseded document versions and old renders (kept locally only)
+docs/archive/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Experiment outputs: raw runs, logs and checkpoints stay local;
+# curated figures and tables go in results/
+runs/
+checkpoints/
+wandb/
+*.pt
+*.pth
+*.ckpt
+
+# OS, editor and Office lock files
+.DS_Store
+.vscode/
+.idea/
+~$*

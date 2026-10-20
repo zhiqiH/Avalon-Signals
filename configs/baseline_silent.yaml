@@ -1,0 +1,38 @@
+# Silent baseline S: no communication; self-play PPO for both teams.
+# These are starting values. Settle them in the pilot (configs/pilot_silent.yaml),
+# then keep them fixed for every configuration in the formal comparison.
+name: baseline_silent
+seed: 0
+device: auto            # rollouts always run on CPU; the PPO update uses this device
+total_games: 100000     # training budget B (candidate range 20k-100k games)
+games_per_iter: 512
+checkpoint_every: 20
+out_dir: runs
+
+model:
+  hidden_sizes: [256, 256]
+
+ppo:
+  lr: 3.0e-4
+  epochs: 4
+  minibatch_size: 2048
+  clip_coef: 0.2
+  vf_coef: 0.5
+  ent_coef: 0.01
+  max_grad_norm: 0.5
+  gamma: 1.0            # finite game with a single terminal reward
+  gae_lambda: 0.95
+  norm_adv: true
+
+opponents:
+  p_self: 0.5           # both teams current policies
+  p_pool: 0.25          # one team replaced by a past snapshot
+  p_rule: 0.25          # one team replaced by the rule-based player
+  snapshot_every: 10
+  pool_size: 20
+  rule_fail_prob: 0.9
+  rule_merlin_knowledge_prob: 0.5   # rule Merlin acts on his knowledge only half the time
+
+eval:
+  every: 20
+  games: 512
