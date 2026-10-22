@@ -78,7 +78,7 @@ def _set_dotted(data: dict[str, Any], key: str, value: Any) -> None:
 def load_config(path: str | Path | None = None, overrides: dict[str, Any] | None = None) -> TrainConfig:
     data: dict[str, Any] = {}
     if path is not None:
-        data = yaml.safe_load(Path(path).read_text()) or {}
+        data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     for key, value in (overrides or {}).items():
         if value is not None:
             _set_dotted(data, key, value)

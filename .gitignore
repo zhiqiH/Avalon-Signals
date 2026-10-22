@@ -21,6 +21,7 @@ venv/
 # Experiment outputs: raw runs, logs and checkpoints stay local;
 # curated figures and tables go in results/
 runs/
+logs/
 checkpoints/
 wandb/
 *.pt

@@ -49,11 +49,11 @@ def main() -> None:
         win = summary["good_win"]
         print(f"{name:28s} good win {win['rate']:.3f}  95% CI [{win['ci95'][0]:.3f}, {win['ci95'][1]:.3f}]")
         if keep:
-            with open(args.save_games, "w") as f:
+            with open(args.save_games, "w", encoding="utf-8") as f:
                 f.writelines(json.dumps(r) + "\n" for r in records)
 
     out = Path(args.out) if args.out else Path(args.checkpoint).with_suffix(".eval.json")
-    out.write_text(json.dumps(results, indent=2))
+    out.write_text(json.dumps(results, indent=2), encoding="utf-8")
     print(f"wrote {out}")
 
 

@@ -86,12 +86,12 @@ def test_short_training_run_checkpoints_and_resumes(tmp_path):
         "ppo.minibatch_size": 256,
     }
     run_dir = train(load_config(PILOT, overrides))
-    lines = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text().splitlines()]
+    lines = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text(encoding="utf-8").splitlines()]
     assert lines[0]["iteration"] == 0 and "reference_rule_vs_rule" in lines[0]
     assert lines[-1]["iteration"] == 2 and "eval" in lines[-1]
     nets = load_policies(run_dir / "latest.pt")
     assert set(nets) == {"good", "evil"}
 
     train(load_config(PILOT, {**overrides, "total_games": 96, "resume": True}))
-    lines = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text().splitlines()]
+    lines = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text(encoding="utf-8").splitlines()]
     assert lines[-1]["iteration"] == 3 and lines[-1]["games"] == 96

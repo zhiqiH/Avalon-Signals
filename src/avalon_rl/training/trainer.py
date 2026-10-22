@@ -9,7 +9,10 @@ from __future__ import annotations
 import copy
 import json
 import math
+import platform
+import subprocess
 import time
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -35,6 +38,27 @@ def resolve_device(name: str) -> torch.device:
     if name == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return torch.device(name)
+
+
+def run_info(device: torch.device) -> dict:
+    """Where and with which code a run (or resumption) started; appended to run_info.jsonl."""
+    info = {
+        "started": datetime.now().isoformat(timespec="seconds"),
+        "host": platform.node(),
+        "platform": platform.platform(),
+        "python": platform.python_version(),
+        "torch": torch.__version__,
+        "device": str(device),
+        "gpu": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
+    }
+    repo = Path(__file__).resolve().parents[3]
+    git = lambda *args: subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True).stdout.strip()  # noqa: E731
+    try:
+        info["git_commit"] = git("rev-parse", "HEAD")
+        info["git_dirty"] = bool(git("status", "--porcelain", "--untracked-files=no"))
+    except (OSError, subprocess.CalledProcessError):
+        info["git_commit"] = info["git_dirty"] = None
+    return info
 
 
 def sample_matchups(n_games, learners, pool, rule, probs, rng):
@@ -85,7 +109,9 @@ def train(cfg: TrainConfig) -> Path:
         for t in TEAMS:
             nets[t].load_state_dict(ckpt["nets"][t])
         print(f"initialised network weights from {cfg.init_from}")
-    (run_dir / "config.yaml").write_text(yaml.safe_dump(config_to_dict(cfg), sort_keys=False))
+    (run_dir / "config.yaml").write_text(yaml.safe_dump(config_to_dict(cfg), sort_keys=False), encoding="utf-8")
+    with open(run_dir / "run_info.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps({"iteration": iteration, **run_info(device)}) + "\n")
 
     # Rollouts run on CPU copies: per-tick batches are small, so GPU transfers would dominate.
     rollout_nets = nets if device.type == "cpu" else {t: copy.deepcopy(nets[t]).to("cpu") for t in TEAMS}
@@ -97,7 +123,7 @@ def train(cfg: TrainConfig) -> Path:
     n_iters = math.ceil(cfg.total_games / cfg.games_per_iter)
     eval_seed = 10_000 + cfg.seed  # fixed, so evaluations across iterations are paired
 
-    with open(run_dir / "metrics.jsonl", "a") as log:
+    with open(run_dir / "metrics.jsonl", "a", encoding="utf-8") as log:
         if iteration == 0:
             ref, _ = run_matchup(rule, rule, cfg.eval.games, eval_seed)
             log.write(json.dumps({"iteration": 0, "reference_rule_vs_rule": ref}) + "\n")

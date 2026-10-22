@@ -1,0 +1,6 @@
+# Keep LF line endings in the repository and in working copies on every OS,
+# so code edited on macOS and pulled on Windows stays byte-identical.
+* text=auto eol=lf
+*.docx binary
+*.pdf binary
+*.png binary

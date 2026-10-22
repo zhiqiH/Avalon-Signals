@@ -79,7 +79,7 @@ What do agents gain from talking in a hidden-role game? This project trains mult
 │   ├── runner.py            Plays many games in lockstep with batched decisions
 │   └── config.py            YAML-backed training configuration
 ├── configs/                 baseline_silent.yaml (S) and pilot_silent.yaml (short pilot)
-├── scripts/                 train.py, evaluate.py, benchmark.py
+├── scripts/                 train.py, evaluate.py, benchmark.py, launch_windows.ps1
 ├── tests/                   Rules, information leakage, observation encoding, GAE, a short training run
 ├── notebooks/               Analysis notebooks
 ├── results/                 Curated figures and tables
@@ -116,25 +116,15 @@ python scripts/evaluate.py --checkpoint runs/baseline_silent/seed0/latest.pt --g
 
 ## Running on a Remote GPU Machine
 
-Development happens locally; experiments run over SSH on a separate GPU laptop.
+Code is edited on a Mac. Experiments run over SSH on a Windows laptop with an RTX 5070 Ti; code reaches the laptop through `git pull`. The full setup and daily loop are in [docs/remote_windows.md](docs/remote_windows.md).
 
 **Where the time goes.** The networks are small and rollouts run on the CPU, so throughput comes mostly from running several seeds in parallel. The GPU only speeds up the PPO update. On an Apple M5 CPU, self-play collects about 500 games/s, so a 100,000-game run takes minutes rather than hours. Run `scripts/benchmark.py` on the remote machine before fixing the budget.
 
-```bash
-git clone https://github.com/zhiqiH/Avalon-Signals.git && cd Avalon-Signals
-python -m venv .venv && source .venv/bin/activate
-pip install torch --index-url https://download.pytorch.org/whl/cu128   # RTX 50-series needs a CUDA 12.8 build
-pip install -e ".[dev]" && pytest
-tmux new -s avalon                                                      # keeps runs alive after SSH disconnects
-for s in 0 1 2; do
-  python scripts/train.py --config configs/baseline_silent.yaml --seed $s --device cuda --threads 2 \
-    > runs_seed$s.log 2>&1 &
-done
+**Starting runs.** Windows OpenSSH kills a session's processes when the connection drops. Start runs with the launcher, which keeps them alive after a disconnect:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\launch_windows.ps1 -Seeds 0,1,2
 ```
-
-Copy results back with `rsync -av <host>:Avalon-Signals/runs/ runs/`.
-
-On native Windows, use WSL2 for `tmux` and the commands above; alternatively, activate with `.venv\Scripts\activate` and start each seed in its own persistent session.
 
 ## Design Documents
 
