@@ -88,10 +88,11 @@ What do agents gain from talking in a hidden-role game? This project trains mult
 
 ## Quick Start
 
-Python 3.10 or newer.
+Python 3.10 or newer; the environment is named after the project on every machine.
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+conda create -y -n avalon-signals --override-channels -c conda-forge python=3.12
+conda activate avalon-signals
 pip install -e ".[dev]"
 pytest                                                     # rules, leakage, GAE and a short training run
 python scripts/benchmark.py --games 2048                   # simulation and update throughput on this machine

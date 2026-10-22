@@ -33,23 +33,26 @@ Every run appends the host, GPU, PyTorch version and git commit (plus a dirty fl
 
 1. **GPU driver.** Run `nvidia-smi`; the reported CUDA version must be 12.8 or newer, which RTX 50-series GPUs require. Update the NVIDIA driver if it is older.
 
-2. **Git and Python.**
-
-   ```powershell
-   winget install --id Git.Git -e --accept-package-agreements --accept-source-agreements
-   winget install --id Python.Python.3.12 -e --accept-package-agreements --accept-source-agreements
-   ```
-
-   If `winget` misbehaves over SSH, install both from their websites on the laptop itself. Afterwards, open a new terminal so that `git` and `py` are on the PATH.
+2. **Git and conda.** Install Git for Windows and Anaconda (or Miniconda), e.g. `winget install --id Git.Git -e`. Run `conda init powershell` once, so that `conda activate` works in PowerShell terminals.
 
 3. **Access to the private repository.** Use a read-only deploy key, so the laptop can pull but never push.
 
    ```powershell
-   ssh-keygen -t ed25519 -C "avalon-gpu" -f $HOME\.ssh\id_ed25519
-   Get-Content $HOME\.ssh\id_ed25519.pub
+   ssh-keygen -t ed25519 -C "avalon-gpu deploy key" -f $HOME\.ssh\id_ed25519_github
+   Get-Content $HOME\.ssh\id_ed25519_github.pub
    ```
 
-   Add the printed key on GitHub under the repository's **Settings → Deploy keys** (leave write access off). Then clone:
+   Add the printed key on GitHub under the repository's **Settings → Deploy keys** (leave write access off). Then tell SSH to use it for GitHub by appending this to `$HOME\.ssh\config`:
+
+   ```
+   Host github.com
+       HostName github.com
+       User git
+       IdentityFile ~/.ssh/id_ed25519_github
+       IdentitiesOnly yes
+   ```
+
+   Check with `ssh -T git@github.com`; the reply should greet the repository. In scripted, non-interactive SSH sessions, Windows `ssh` waits on standard input forever, so run it as `cmd /c "ssh -T git@github.com < NUL"`. An interactive VS Code terminal is not affected. Then clone:
 
    ```powershell
    cd $HOME
@@ -57,11 +60,11 @@ Every run appends the host, GPU, PyTorch version and git commit (plus a dirty fl
    cd Avalon-Signals
    ```
 
-4. **Python environment.**
+4. **Python environment.** The conda environment is named after the project, `avalon-signals`, on every machine. conda-forge avoids the Terms-of-Service prompt that Anaconda's default channels show in non-interactive sessions.
 
    ```powershell
-   py -3.12 -m venv .venv
-   .venv\Scripts\Activate.ps1          # if blocked: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+   conda create -y -n avalon-signals --override-channels -c conda-forge python=3.12
+   conda activate avalon-signals
    pip install torch --index-url https://download.pytorch.org/whl/cu128
    pip install -e ".[dev]"
    python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
@@ -69,7 +72,7 @@ Every run appends the host, GPU, PyTorch version and git commit (plus a dirty fl
    python scripts\benchmark.py --games 2048 --device cuda
    ```
 
-   In the Remote-SSH window, install the VS Code **Python** extension. Then select `.venv\Scripts\python.exe` as the interpreter.
+   In the Remote-SSH window, install the VS Code **Python** extension. Then select the interpreter of the `avalon-signals` conda environment, e.g. `C:\Users\<user>\anaconda3\envs\avalon-signals\python.exe`. The launcher finds this environment by name; it does not need to be activated.
 
 5. **Power.** While training, keep the laptop plugged in and stop it from sleeping:
 
@@ -83,7 +86,7 @@ Every run appends the host, GPU, PyTorch version and git commit (plus a dirty fl
 
 1. **Mac:** edit the code, run `pytest`, commit, and `git push`.
 
-2. **Windows** (terminal of the Remote-SSH window, with the venv active):
+2. **Windows** (terminal of the Remote-SSH window, after `conda activate avalon-signals`):
    1. Get the new code with `git pull`.
    2. On the first use, check that the launcher works with a tiny run:
 
