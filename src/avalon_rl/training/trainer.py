@@ -123,7 +123,11 @@ def train(cfg: TrainConfig) -> Path:
     n_iters = math.ceil(cfg.total_games / cfg.games_per_iter)
     eval_seed = 10_000 + cfg.seed  # fixed, so evaluations across iterations are paired
 
-    with open(run_dir / "metrics.jsonl", "a", encoding="utf-8") as log:
+    # A fresh start replaces the metrics of any earlier attempt in this run dir; a resume appends.
+    metrics_path = run_dir / "metrics.jsonl"
+    if iteration == 0 and metrics_path.exists():
+        print(f"warning: starting from scratch, overwriting {metrics_path} (use --resume to continue)")
+    with open(metrics_path, "a" if iteration > 0 else "w", encoding="utf-8") as log:
         if iteration == 0:
             ref, _ = run_matchup(rule, rule, cfg.eval.games, eval_seed)
             log.write(json.dumps({"iteration": 0, "reference_rule_vs_rule": ref}) + "\n")

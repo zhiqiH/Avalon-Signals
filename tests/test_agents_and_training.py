@@ -95,3 +95,14 @@ def test_short_training_run_checkpoints_and_resumes(tmp_path):
     train(load_config(PILOT, {**overrides, "total_games": 96, "resume": True}))
     lines = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text(encoding="utf-8").splitlines()]
     assert lines[-1]["iteration"] == 3 and lines[-1]["games"] == 96
+
+
+def test_fresh_start_overwrites_metrics_of_earlier_attempt(tmp_path):
+    overrides = {
+        "out_dir": str(tmp_path), "device": "cpu", "total_games": 64, "games_per_iter": 32,
+        "eval.every": 2, "eval.games": 16, "ppo.minibatch_size": 256,
+    }
+    run_dir = train(load_config(PILOT, overrides))
+    train(load_config(PILOT, overrides))  # same run dir, not a resume
+    lines = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [entry["iteration"] for entry in lines] == [0, 1, 2]
