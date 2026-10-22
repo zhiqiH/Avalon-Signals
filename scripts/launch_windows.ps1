@@ -49,7 +49,8 @@ foreach ($seed in ($Seeds -split "," | ForEach-Object { $_.Trim() } | Where-Obje
     $log = Join-Path $logDir "${configName}_seed${seed}_${stamp}.log"
     $train = "`"$Python`" -u scripts\train.py --config $Config --seed $seed --device $Device --threads $Threads $ExtraArgs"
     # Same effect as activating the conda env; PYTHONUTF8 keeps file and console IO in UTF-8.
-    $setup = "set `"PATH=$envDir;$envDir\Library\bin;$envDir\Scripts;%PATH%`" && set PYTHONUTF8=1"
+    # Quoted `set "VAR=value"` keeps the space before && out of the value.
+    $setup = "set `"PATH=$envDir;$envDir\Library\bin;$envDir\Scripts;%PATH%`" && set `"PYTHONUTF8=1`""
     # cmd /s /c strips exactly one outer pair of quotes, so quoted paths inside survive.
     $commandLine = "cmd.exe /s /c `"$setup && $train > `"$log`" 2>&1`""
     $result = Invoke-CimMethod -ClassName Win32_Process -MethodName Create `
