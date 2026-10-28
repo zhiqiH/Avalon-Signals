@@ -77,7 +77,9 @@ def ppo_update(
         raise NotImplementedError("MMD is only implemented for the silent game")
     t = lambda x: torch.as_tensor(x, device=device)  # noqa: E731
     obs, masks, actions = t(batch.obs), t(batch.masks), t(batch.actions)
-    comm_obs = t(batch.comm_obs) if net.comm else None
+    # The int8 communication features are the bulk of a batch: keep them in host memory and move one
+    # minibatch at a time, so several runs can share one GPU.
+    comm_obs = torch.as_tensor(batch.comm_obs) if net.comm else None
     old_logps, advantages, returns = t(batch.logps), t(batch.advantages), t(batch.returns)
     is_msg = actions[:, 0] < 0  # message decisions use no game-action head
 
@@ -90,9 +92,8 @@ def ppo_update(
         order = rng.permutation(n)
         for start in range(0, n, cfg.minibatch_size):
             idx = torch.as_tensor(order[start:start + cfg.minibatch_size], device=device)
-            new_logps, entropies, value, logits = net.evaluate(
-                obs[idx], comm_obs[idx] if comm_obs is not None else None, masks[idx], actions[idx]
-            )
+            mb_comm = comm_obs[idx.cpu()].to(device, non_blocking=True) if comm_obs is not None else None
+            new_logps, entropies, value, logits = net.evaluate(obs[idx], mb_comm, masks[idx], actions[idx])
             log_ratio = new_logps - old_logps[idx]
             ratio = log_ratio.exp()
 
