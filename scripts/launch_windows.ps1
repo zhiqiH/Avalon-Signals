@@ -8,8 +8,10 @@
     service instead of the SSH session, so they survive disconnects. Each job runs as its own
     process and writes its console output to logs\<name>_<timestamp>.log.
 
-    Default mode starts scripts\train.py once per seed. With -Raw, starts exactly one job running
-    `python -u <Raw>` (e.g. a best-response run) and names its log after -Name.
+    Default mode starts scripts\train.py once per seed; -Name, if given, becomes the run name
+    (train.py --name) and the log prefix, so several runs of one config can start at once.
+    With -Raw, starts exactly one job running `python -u <Raw>` (e.g. a best-response run) and
+    names its log after -Name.
 
     Python comes from the conda environment named -EnvName (default avalon-signals), looked up in
     the usual conda locations, or from -Python if given. The environment does not need to be
@@ -17,6 +19,9 @@
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts\launch_windows.ps1 -Config configs\baseline_eq.yaml -Seeds 0,1,2 -Device cpu -Threads 4
+
+.EXAMPLE
+    powershell -ExecutionPolicy Bypass -File scripts\launch_windows.ps1 -Config configs\baseline_eq.yaml -Name pilot_eq_a0.3 -Device cpu -Threads 4 -ExtraArgs "--set mmd.alpha=0.3"
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts\launch_windows.ps1 -Name br_seed0_evil -Threads 4 -Raw "scripts\best_response.py --checkpoint runs\baseline_eq\seed0\latest.pt --side evil"
@@ -28,7 +33,7 @@ param(
     [int]$Threads = 2,             # torch CPU threads per run; keep low when running seeds in parallel
     [string]$ExtraArgs = "",       # passed through to scripts\train.py
     [string]$Raw = "",             # run `python -u <Raw>` once instead of train.py per seed
-    [string]$Name = "job",         # log name for -Raw jobs
+    [string]$Name = "",            # run name and log prefix (train mode: passed as --name); log name for -Raw jobs
     [string]$EnvName = "avalon-signals",
     [string]$Python = ""           # explicit python.exe; overrides the conda lookup
 )
@@ -60,13 +65,15 @@ function Start-Detached([string]$job, [string]$log, [string]$label) {
 }
 
 if ($Raw) {
+    if (-not $Name) { $Name = "job" }
     Start-Detached "`"$Python`" -u $Raw" (Join-Path $logDir "${Name}_${stamp}.log") $Name
 } else {
     if (-not (Test-Path (Join-Path $repo $Config))) { throw "Config not found: $Config" }
-    $configName = [IO.Path]::GetFileNameWithoutExtension($Config)
+    $prefix = if ($Name) { $Name } else { [IO.Path]::GetFileNameWithoutExtension($Config) }
+    $nameArg = if ($Name) { "--name $Name " } else { "" }
     foreach ($seed in ($Seeds -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
-        $train = "`"$Python`" -u scripts\train.py --config $Config --seed $seed --device $Device --threads $Threads $ExtraArgs"
-        Start-Detached $train (Join-Path $logDir "${configName}_seed${seed}_${stamp}.log") "seed $seed"
+        $train = "`"$Python`" -u scripts\train.py --config $Config --seed $seed --device $Device --threads $Threads $nameArg$ExtraArgs"
+        Start-Detached $train (Join-Path $logDir "${prefix}_seed${seed}_${stamp}.log") "$prefix seed $seed"
     }
 }
 
