@@ -1,7 +1,7 @@
 """Train an approximate best response against one side of a checkpoint (half of an exploitability estimate).
 
-    python scripts/best_response.py --checkpoint runs/baseline_eq/seed0/latest.pt --side evil --games 100000
-    python scripts/best_response.py --checkpoint runs/baseline_eq/seed0/latest.pt --side good --games 100000
+    python scripts/best_response.py --checkpoint runs/baseline_silent/seed0/latest.pt --side evil --games 100000
+    python scripts/best_response.py --checkpoint runs/baseline_silent/seed0/latest.pt --side good --games 100000
 
 `--side evil` trains an evil team against the frozen good policy and vice versa. Each run writes
 br_<side>_<checkpoint stem>_<games>.json next to the checkpoint; combine the two sides with

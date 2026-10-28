@@ -18,13 +18,13 @@
     activated: its folders are put on PATH for the started process.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File scripts\launch_windows.ps1 -Config configs\baseline_eq.yaml -Seeds 0,1,2 -Device cpu -Threads 4
+    powershell -ExecutionPolicy Bypass -File scripts\launch_windows.ps1 -Config configs\baseline_silent.yaml -Seeds 0,1,2 -Device cpu -Threads 4
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File scripts\launch_windows.ps1 -Config configs\baseline_eq.yaml -Name pilot_eq_a0.3 -Device cpu -Threads 4 -ExtraArgs "--set mmd.alpha=0.3"
+    powershell -ExecutionPolicy Bypass -File scripts\launch_windows.ps1 -Config configs\pilot_silent.yaml -Name pilot_lr1e-4 -Device cpu -Threads 4 -ExtraArgs "--set ppo.lr=1e-4"
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File scripts\launch_windows.ps1 -Name br_seed0_evil -Threads 4 -Raw "scripts\best_response.py --checkpoint runs\baseline_eq\seed0\latest.pt --side evil"
+    powershell -ExecutionPolicy Bypass -File scripts\launch_windows.ps1 -Name br_seed0_evil -Threads 4 -Raw "scripts\best_response.py --checkpoint runs\baseline_silent\seed0\latest.pt --side evil"
 #>
 param(
     [string]$Config = "configs\baseline_silent.yaml",
