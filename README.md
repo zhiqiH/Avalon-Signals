@@ -86,7 +86,7 @@ What do agents gain from talking in a hidden-role game? This project trains mult
 │   ├── runner.py            Plays many games in lockstep with batched decisions
 │   └── config.py            YAML-backed training configuration
 ├── configs/                 baseline_eq.yaml (S-eq), baseline_silent.yaml (S-ind), pilot_silent.yaml (short pilot)
-├── scripts/                 train.py, evaluate.py, best_response.py, exploitability.py, plot_training.py, benchmark.py, launch_windows.ps1
+├── scripts/                 train.py, evaluate.py, crossplay.py, best_response.py, exploitability.py, plot_training.py, benchmark.py, launch_windows.ps1
 ├── tests/                   Rules, information leakage, observation encoding, GAE, a short training run
 ├── notebooks/               Analysis notebooks
 ├── results/                 Curated figures and tables
