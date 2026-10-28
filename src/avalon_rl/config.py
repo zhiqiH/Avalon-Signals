@@ -8,6 +8,7 @@ from typing import Any
 
 import yaml
 
+from .comm.protocol import CommConfig
 from .training.ppo import MMDConfig, PPOConfig
 
 
@@ -44,9 +45,10 @@ class TrainConfig:
     games_per_iter: int = 512
     checkpoint_every: int = 20
     out_dir: str = "runs"
-    init_from: str | None = None  # load network weights only (warm start / branch point)
+    init_from: str | None = None  # load network weights only (warm start / branch point); "{seed}" is filled in
     resume: bool = False  # continue from <out_dir>/<name>/seed<seed>/latest.pt if it exists
     model: ModelConfig = field(default_factory=ModelConfig)
+    comm: CommConfig = field(default_factory=CommConfig)  # disabled: the silent game
     ppo: PPOConfig = field(default_factory=PPOConfig)
     mmd: MMDConfig = field(default_factory=MMDConfig)
     opponents: OpponentConfig = field(default_factory=OpponentConfig)

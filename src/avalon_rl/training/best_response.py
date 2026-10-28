@@ -18,11 +18,11 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from ..agents.policy import ActorCritic, PolicyController
+from ..agents.policy import PolicyController
 from ..env.game import AvalonGame
 from ..evaluation.evaluate import run_matchup
 from ..runner import play
-from .checkpoint import TEAMS, load_checkpoint, load_policies
+from .checkpoint import TEAMS, build_net, comm_config, load_checkpoint, load_policies
 from .ppo import PPOConfig, ppo_update
 from .rollout import TrajectoryRecorder
 
@@ -59,7 +59,8 @@ def train_best_response(checkpoint: str | Path, side: str, cfg: BestResponseConf
     target = load_policies(checkpoint, "cpu")
     frozen = PolicyController(target[other], learn=False)
 
-    net = ActorCritic(hidden_sizes=ckpt["config"]["model"]["hidden_sizes"]).to(device)
+    comm = comm_config(ckpt["config"])
+    net = build_net(ckpt["config"]).to(device)
     if cfg.init == "target":
         net.load_state_dict(ckpt["nets"][side])
     elif cfg.init != "scratch":
@@ -71,14 +72,14 @@ def train_best_response(checkpoint: str | Path, side: str, cfg: BestResponseConf
 
     def evaluate() -> float:
         good, evil = (frozen_br, frozen) if side == "good" else (frozen, frozen_br)
-        summary, _ = run_matchup(good, evil, cfg.eval_games, cfg.eval_seed)
+        summary, _ = run_matchup(good, evil, cfg.eval_games, cfg.eval_seed, comm=comm)
         return _win_rate(summary, side)
 
     curve = [(0, evaluate())]
     print(f"BR {side} vs frozen {other} of {checkpoint}: start win rate {curve[0][1]:.3f}", flush=True)
     n_iters = math.ceil(cfg.games / cfg.games_per_iter)
     for it in range(1, n_iters + 1):
-        games = [AvalonGame(rng) for _ in range(cfg.games_per_iter)]
+        games = [AvalonGame(rng, comm=comm) for _ in range(cfg.games_per_iter)]
         mine, theirs = [learner] * len(games), [frozen] * len(games)
         good_ctrls, evil_ctrls = (mine, theirs) if side == "good" else (theirs, mine)
         recorder = TrajectoryRecorder()

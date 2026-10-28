@@ -17,7 +17,7 @@ import numpy as np
 
 from avalon_rl.agents import PolicyController
 from avalon_rl.evaluation import run_matchup
-from avalon_rl.training.checkpoint import load_policies
+from avalon_rl.training.checkpoint import comm_config, load_checkpoint, load_policies
 
 
 def main() -> None:
@@ -29,12 +29,15 @@ def main() -> None:
     args = parser.parse_args()
 
     policies = [{t: PolicyController(net, learn=False) for t, net in load_policies(c).items()} for c in args.checkpoints]
+    comms = [comm_config(load_checkpoint(c)["config"]) for c in args.checkpoints]
+    if any(c != comms[0] for c in comms):
+        raise SystemExit("all checkpoints must share one communication configuration")
     n = len(policies)
     win = np.zeros((n, n))
     cells = {}
     for i in range(n):
         for j in range(n):
-            summary, _ = run_matchup(policies[i]["good"], policies[j]["evil"], args.games, args.seed)
+            summary, _ = run_matchup(policies[i]["good"], policies[j]["evil"], args.games, args.seed, comm=comms[0])
             win[i, j] = summary["good_win"]["rate"]
             cells[f"good{i}_evil{j}"] = summary
 

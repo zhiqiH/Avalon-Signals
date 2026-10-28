@@ -3,6 +3,10 @@
 The game stores public history in absolute seats; `observation.encode` rotates it into each
 player's relative frame. Hidden roles live in `roles` and must only be read by the referee,
 by `private_knowledge`, and by offline analysis -- never by agents directly.
+
+With an enabled `CommConfig`, every proposal is followed by a DISCUSS phase (one message per player,
+leader first) before the vote, and three successes lead to EVIL_DISCUSS (Morgana, then the Assassin)
+before the assassination; see `comm.protocol`. In those phases `step` takes messages instead of actions.
 """
 from __future__ import annotations
 
@@ -10,9 +14,11 @@ from typing import Mapping
 
 import numpy as np
 
+from ..comm import protocol as P  # module import: comm.protocol itself imports from this package
 from . import actions as A
 from .rules import (
     APPROVALS_NEEDED,
+    DISCUSSION_PHASES,
     EVIL_ROLES,
     MAX_PROPOSALS,
     N_PLAYERS,
@@ -27,7 +33,8 @@ from .rules import (
 
 
 class AvalonGame:
-    def __init__(self, rng: np.random.Generator | None = None):
+    def __init__(self, rng: np.random.Generator | None = None, comm: P.CommConfig | None = None):
+        self.comm = comm if comm is not None else P.CommConfig()
         self.reset(rng if rng is not None else np.random.default_rng())
 
     def reset(self, rng: np.random.Generator) -> "AvalonGame":
@@ -55,6 +62,15 @@ class AvalonGame:
 
         # Private memory: each player's own quest cards, -1 none, 0 success, 1 fail.
         self.quest_cards = np.full((N_PLAYERS, N_QUESTS), -1, dtype=np.int8)
+
+        # Discussion: speaking order of the current discussion and the public message log.
+        self.speakers: list[int] = []
+        self.speak_idx = 0
+        if self.comm.enabled:
+            self.msg_log = np.full((N_QUESTS, MAX_PROPOSALS, N_PLAYERS, P.N_MSG_HEADS), -1, dtype=np.int8)
+            self.msg_feat = np.zeros((N_QUESTS, MAX_PROPOSALS, N_PLAYERS, P.MSG_FEAT_DIM), dtype=np.int8)
+            self.evil_log = np.full((N_PLAYERS, P.N_MSG_HEADS), -1, dtype=np.int8)
+            self.evil_feat = np.zeros((N_PLAYERS, N_PLAYERS, 2), dtype=np.int8)  # speaker x target x (Merlin, not)
         return self
 
     # ------------------------------------------------------------------ queries
@@ -65,6 +81,10 @@ class AvalonGame:
     @property
     def team_size(self) -> int:
         return QUEST_SIZES[self.quest]
+
+    @property
+    def in_discussion(self) -> bool:
+        return self.phase in DISCUSSION_PHASES
 
     def is_evil_seat(self, seat: int) -> bool:
         return int(self.roles[seat]) in EVIL_ROLES
@@ -81,9 +101,12 @@ class AvalonGame:
             return [int(s) for s in np.flatnonzero(self.team)]
         if self.phase == Phase.ASSASSINATE:
             return [self.seat_of(Role.ASSASSIN)]
+        if self.in_discussion:
+            return [self.speakers[self.speak_idx]]
         return []
 
     def legal_mask(self, player: int) -> np.ndarray:
+        """Legal game actions (none during discussions, where players send messages instead)."""
         mask = np.zeros(A.N_ACTIONS, dtype=bool)
         if self.phase == Phase.PROPOSE and player == self.leader:
             mask[A.TEAM_OFFSET:A.TEAM_OFFSET + len(A.TEAMS_BY_SIZE[self.team_size])] = True
@@ -99,7 +122,17 @@ class AvalonGame:
         return mask
 
     def private_knowledge(self, player: int) -> tuple[np.ndarray, np.ndarray]:
-        """(known_evil, merlin_candidates) in absolute seats, as allowed by the player's role."""
+        """(known_evil, merlin_candidates) in absolute seats, as allowed by the player's role.
+
+        Cached per player for the current `roles` array (callers must not modify the returned arrays).
+        """
+        if getattr(self, "_knowledge_roles", None) is not self.roles:
+            self._knowledge_roles, self._knowledge = self.roles, {}
+        if player not in self._knowledge:
+            self._knowledge[player] = self._private_knowledge(player)
+        return self._knowledge[player]
+
+    def _private_knowledge(self, player: int) -> tuple[np.ndarray, np.ndarray]:
         known_evil = np.zeros(N_PLAYERS, dtype=bool)
         candidates = np.zeros(N_PLAYERS, dtype=bool)
         role = int(self.roles[player])
@@ -112,11 +145,19 @@ class AvalonGame:
         return known_evil, candidates
 
     # ------------------------------------------------------------------ transitions
-    def step(self, actions: Mapping[int, int]) -> None:
-        """Apply the simultaneous actions of all `acting_players()`."""
+    def step(self, actions: Mapping[int, int | np.ndarray], message_masks: tuple | None = None) -> None:
+        """Apply the simultaneous actions of all `acting_players()` (in a discussion: the speaker's message).
+
+        `message_masks` may pass the speaker's `comm.protocol.message_mask` if the caller already computed it.
+        """
         acting = self.acting_players()
         if sorted(actions) != acting:
             raise ValueError(f"expected actions for {acting}, got {sorted(actions)}")
+        if self.in_discussion:
+            speaker, msg = next(iter(actions.items()))
+            P.check_message(self, speaker, msg, message_masks)
+            self._speak(speaker, np.asarray(msg, dtype=np.int8))
+            return
         for p, a in actions.items():
             if not self.legal_mask(p)[a]:
                 raise ValueError(f"illegal action {a} for player {p} in phase {self.phase.name}")
@@ -136,7 +177,31 @@ class AvalonGame:
         self.team[list(A.decode_team(self.leader, action, self.team_size))] = True
         self.prop_leader[q, a] = self.leader
         self.prop_team[q, a] = self.team
-        self.phase = Phase.VOTE
+        if self.comm.enabled:
+            self._start_discussion(Phase.DISCUSS, [(self.leader + k) % N_PLAYERS for k in range(N_PLAYERS)])
+        else:
+            self.phase = Phase.VOTE
+
+    def _start_discussion(self, phase: Phase, speakers: list[int]) -> None:
+        self.phase = phase
+        self.speakers = speakers
+        self.speak_idx = 0
+
+    def _speak(self, speaker: int, msg: np.ndarray) -> None:
+        if self.phase == Phase.DISCUSS:
+            q, a = self.quest, self.attempt
+            self.msg_log[q, a, speaker] = msg
+            self.msg_feat[q, a, speaker] = P.message_features(self, speaker, msg)
+        else:
+            self.evil_log[speaker] = msg
+            for r in range(1, N_PLAYERS):
+                v = msg[P.H_ALIGN + r - 1]
+                if v > 0:
+                    self.evil_feat[speaker, (speaker + r) % N_PLAYERS, v - 1] = 1
+        self.speak_idx += 1
+        if self.speak_idx == len(self.speakers):
+            self.phase = Phase.VOTE if self.phase == Phase.DISCUSS else Phase.ASSASSINATE
+            self.speakers, self.speak_idx = [], 0
 
     def _vote(self, actions: Mapping[int, int]) -> None:
         q, a = self.quest, self.attempt
@@ -176,7 +241,10 @@ class AvalonGame:
         if self.fails == WINS_NEEDED:
             self._finish(good_won=False, reason=WinReason.THREE_FAILS)
         elif self.successes == WINS_NEEDED:
-            self.phase = Phase.ASSASSINATE
+            if self.comm.is_open("alignment"):
+                self._start_discussion(Phase.EVIL_DISCUSS, [self.seat_of(Role.MORGANA), self.seat_of(Role.ASSASSIN)])
+            else:
+                self.phase = Phase.ASSASSINATE
         else:
             self.phase = Phase.PROPOSE
 
@@ -211,7 +279,7 @@ class AvalonGame:
                     "approvals": [int(s) for s in np.flatnonzero(self.prop_votes[q, a])],
                     "approved": bool(self.prop_approved[q, a]),
                 })
-        return {
+        record = {
             "roles": [Role(int(r)).name for r in self.roles],
             "good_won": self.good_won,
             "win_reason": self.win_reason.name if self.win_reason is not None else None,
@@ -221,3 +289,13 @@ class AvalonGame:
             "proposals": proposals,
             "assassin_target": self.assassin_target,
         }
+        if self.comm.enabled:
+            record["comm"] = {s: self.comm.is_open(s) for s in ("claim", "alignment", "rationale", "team", "intent")}
+            for p in proposals:
+                q, a = p["quest"], p["attempt"]
+                p["messages"] = [P.decode_message(self.msg_log[q, a, s], s, QUEST_SIZES[q])
+                                 for s in [(p["leader"] + k) % N_PLAYERS for k in range(N_PLAYERS)]
+                                 if self.msg_log[q, a, s, 0] >= 0]
+            record["evil_talk"] = [P.decode_message(self.evil_log[s], s, QUEST_SIZES[0], evil_talk=True)
+                                   for s in range(N_PLAYERS) if self.evil_log[s, 0] >= 0]
+        return record

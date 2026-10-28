@@ -10,8 +10,8 @@ from avalon_rl.env import actions as A
 ROLES = [Role.MERLIN, Role.PERCIVAL, Role.SERVANT, Role.SERVANT, Role.MORGANA, Role.ASSASSIN]
 
 
-def make_game(roles=ROLES, leader: int = 0) -> AvalonGame:
-    game = AvalonGame(np.random.default_rng(0))
+def make_game(roles=ROLES, leader: int = 0, comm=None) -> AvalonGame:
+    game = AvalonGame(np.random.default_rng(0), comm=comm)
     game.roles = np.array([int(r) for r in roles], dtype=np.int8)
     game.leader = leader
     return game

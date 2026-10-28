@@ -1,9 +1,11 @@
 """Measure simulation and update throughput on the current machine before choosing budget B.
 
     python scripts/benchmark.py --games 2048 --device cuda
+    python scripts/benchmark.py --games 512 --comm F --device cuda   # full five-slot communication
 
 Reports (1) random-vs-random games per second (pure engine), (2) self-play rollout speed with the
-policy network, and (3) PPO update time for one iteration's batch on the chosen device.
+policy network, and (3) PPO update time for one iteration's batch on the chosen device. --comm picks a
+communication configuration: S (silent, default), M (alignment + rationale) or F (all five slots).
 """
 from __future__ import annotations
 
@@ -15,6 +17,7 @@ import numpy as np
 import torch
 
 from avalon_rl.agents import ActorCritic, PolicyController, RandomController
+from avalon_rl.comm import CommConfig
 from avalon_rl.env.game import AvalonGame
 from avalon_rl.runner import play
 from avalon_rl.training import PPOConfig, TrajectoryRecorder, ppo_update
@@ -24,20 +27,26 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--games", type=int, default=2048)
     parser.add_argument("--device", default="cpu", help="device for the PPO update")
+    parser.add_argument("--comm", default="S", choices=["S", "M", "F"])
+    parser.add_argument("--threads", type=int)
     args = parser.parse_args()
+    if args.threads:
+        torch.set_num_threads(args.threads)
+    comm = {"S": CommConfig(), "M": CommConfig(enabled=True, claim=False, team=False, intent=False),
+            "F": CommConfig(enabled=True)}[args.comm]
     rng = np.random.default_rng(0)
     torch.manual_seed(0)
 
-    games = [AvalonGame(rng) for _ in range(args.games)]
+    games = [AvalonGame(rng, comm=comm) for _ in range(args.games)]
     rand = RandomController()
     t = time.perf_counter()
     play(games, [rand] * len(games), [rand] * len(games), rng)
     dt = time.perf_counter() - t
     print(f"engine (random play):  {args.games / dt:8.0f} games/s")
 
-    nets = {"good": ActorCritic(), "evil": ActorCritic()}
+    nets = {"good": ActorCritic(comm=comm.enabled), "evil": ActorCritic(comm=comm.enabled)}
     learners = {k: PolicyController(v, learn=True) for k, v in nets.items()}
-    games = [AvalonGame(rng) for _ in range(args.games)]
+    games = [AvalonGame(rng, comm=comm) for _ in range(args.games)]
     recorder = TrajectoryRecorder()
     t = time.perf_counter()
     play(games, [learners["good"]] * len(games), [learners["evil"]] * len(games), rng, on_decision=recorder)

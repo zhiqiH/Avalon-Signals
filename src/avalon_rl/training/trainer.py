@@ -1,8 +1,11 @@
-"""Self-play PPO training of the silent baselines: S-ind (plain PPO) and S-eq (PPO + MMD, see ppo.py).
+"""Self-play PPO training: the silent baseline S and the communication configurations (cfg.comm).
 
 Each iteration plays `games_per_iter` games, turns the learning players' decisions into one
 batch per team, and updates the good and the evil network separately (so the 4-vs-2 team sizes
 never weight each other's losses). Metrics go to <run_dir>/metrics.jsonl, one JSON object per line.
+A communication configuration normally starts from a silent checkpoint (`init_from`, the branch point):
+the silent weights are embedded so that the network initially plays exactly like S and ignores messages.
+The optional MMD regulariser (ppo.py) belongs to an archived experiment.
 """
 from __future__ import annotations
 
@@ -19,17 +22,17 @@ import numpy as np
 import torch
 import yaml
 
-from ..agents.policy import ActorCritic, PolicyController
+from ..agents.policy import ActorCritic, PolicyController, load_silent_weights
 from ..agents.rule_agent import RuleController
 from ..config import TrainConfig, config_to_dict
 from ..env.game import AvalonGame
 from ..evaluation.evaluate import run_matchup
 from ..evaluation.metrics import game_outcome, summarize
 from ..runner import play
-from .checkpoint import load_checkpoint, save_checkpoint
+from .checkpoint import comm_config, load_checkpoint, save_checkpoint
 from .opponent_pool import OpponentPool
 from .ppo import ppo_update
-from .rollout import TEAMS, TrajectoryRecorder
+from .rollout import TEAMS, TrajectoryRecorder, message_usage
 
 MODES = ("self", "pool", "rule")
 
@@ -91,7 +94,7 @@ def train(cfg: TrainConfig) -> Path:
     rng = np.random.default_rng(cfg.seed)
     torch.manual_seed(cfg.seed)
 
-    nets = {t: ActorCritic(hidden_sizes=cfg.model.hidden_sizes).to(device) for t in TEAMS}
+    nets = {t: ActorCritic(hidden_sizes=cfg.model.hidden_sizes, comm=cfg.comm.enabled).to(device) for t in TEAMS}
     opts = {t: torch.optim.Adam(nets[t].parameters(), lr=cfg.ppo.lr, eps=1e-5) for t in TEAMS}
     iteration = games_seen = 0
     latest = run_dir / "latest.pt"
@@ -105,10 +108,15 @@ def train(cfg: TrainConfig) -> Path:
         torch.set_rng_state(ckpt["torch_rng"].cpu())
         print(f"resumed from {latest} at iteration {iteration} (opponent pool restarts empty)")
     elif cfg.init_from:
-        ckpt = load_checkpoint(cfg.init_from, device)
+        init_from = cfg.init_from.format(seed=cfg.seed)
+        ckpt = load_checkpoint(init_from, device)
+        branch = cfg.comm.enabled and not comm_config(ckpt["config"]).enabled
         for t in TEAMS:
-            nets[t].load_state_dict(ckpt["nets"][t])
-        print(f"initialised network weights from {cfg.init_from}")
+            if branch:
+                load_silent_weights(nets[t], ckpt["nets"][t])
+            else:
+                nets[t].load_state_dict(ckpt["nets"][t])
+        print(f"initialised network weights from {init_from}" + (" (silent branch point)" if branch else ""))
 
     # MMD moving magnet: a frozen copy of each team's policy, refreshed every magnet_update_every iterations.
     # It starts as the initial policy (near-uniform for a fresh network) and is restored exactly on resume.
@@ -139,13 +147,13 @@ def train(cfg: TrainConfig) -> Path:
         print(f"warning: starting from scratch, overwriting {metrics_path} (use --resume to continue)")
     with open(metrics_path, "a" if iteration > 0 else "w", encoding="utf-8") as log:
         if iteration == 0:
-            ref, _ = run_matchup(rule, rule, cfg.eval.games, eval_seed)
+            ref, _ = run_matchup(rule, rule, cfg.eval.games, eval_seed, comm=cfg.comm)
             log.write(json.dumps({"iteration": 0, "reference_rule_vs_rule": ref}) + "\n")
             print(f"reference: rule vs rule good win rate {_rate(ref):.3f}")
 
         while iteration < n_iters:
             t0 = time.perf_counter()
-            games = [AvalonGame(rng) for _ in range(cfg.games_per_iter)]
+            games = [AvalonGame(rng, comm=cfg.comm) for _ in range(cfg.games_per_iter)]
             good_ctrls, evil_ctrls, modes = sample_matchups(len(games), learners, pool, rule, probs, rng)
             recorder = TrajectoryRecorder()
             play(games, good_ctrls, evil_ctrls, rng, on_decision=recorder)
@@ -158,6 +166,7 @@ def train(cfg: TrainConfig) -> Path:
                     stats = ppo_update(nets[t], opts[t], batches[t], cfg.ppo, device, rng,
                                        mmd=cfg.mmd, magnet=magnets[t] if magnets else None)
                     entry.update({f"{t}/{k}": v for k, v in stats.items()})
+                    entry.update({f"{t}/says_{k}": v for k, v in message_usage(batches[t]).items()})
                 if rollout_nets[t] is not nets[t]:
                     rollout_nets[t].load_state_dict(nets[t].state_dict())
             t2 = time.perf_counter()
@@ -183,8 +192,8 @@ def train(cfg: TrainConfig) -> Path:
                     magnets[t].load_state_dict(nets[t].state_dict())
                 entry["magnet_updated"] = True
             if iteration % cfg.eval.every == 0 or iteration == n_iters:
-                good_vs_rule, _ = run_matchup(frozen_views["good"], rule, cfg.eval.games, eval_seed)
-                rule_vs_evil, _ = run_matchup(rule, frozen_views["evil"], cfg.eval.games, eval_seed)
+                good_vs_rule, _ = run_matchup(frozen_views["good"], rule, cfg.eval.games, eval_seed, comm=cfg.comm)
+                rule_vs_evil, _ = run_matchup(rule, frozen_views["evil"], cfg.eval.games, eval_seed, comm=cfg.comm)
                 entry["eval"] = {"policy_good_vs_rule_evil": good_vs_rule, "rule_good_vs_policy_evil": rule_vs_evil}
             if iteration % cfg.checkpoint_every == 0 or iteration == n_iters:
                 state = dict(

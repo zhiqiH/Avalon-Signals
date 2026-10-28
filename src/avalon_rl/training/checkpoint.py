@@ -7,6 +7,7 @@ from typing import Any
 import torch
 
 from ..agents.policy import ActorCritic
+from ..comm.protocol import CommConfig
 
 TEAMS = ("good", "evil")
 
@@ -22,13 +23,21 @@ def load_checkpoint(path: str | Path, device: str | torch.device = "cpu") -> dic
     return torch.load(path, map_location=device, weights_only=False)
 
 
+def comm_config(config: dict[str, Any]) -> CommConfig:
+    """Communication configuration stored in a checkpoint's config (silent for checkpoints that predate it)."""
+    return CommConfig(**config.get("comm", {}))
+
+
+def build_net(config: dict[str, Any]) -> ActorCritic:
+    return ActorCritic(hidden_sizes=config["model"]["hidden_sizes"], comm=comm_config(config).enabled)
+
+
 def load_policies(path: str | Path, device: str | torch.device = "cpu") -> dict[str, ActorCritic]:
-    """Rebuild both teams' networks from a checkpoint, using the hidden sizes it was trained with."""
+    """Rebuild both teams' networks from a checkpoint, with the architecture it was trained with."""
     ckpt = load_checkpoint(path, device)
-    hidden = ckpt["config"]["model"]["hidden_sizes"]
     nets = {}
     for team in TEAMS:
-        net = ActorCritic(hidden_sizes=hidden).to(device)
+        net = build_net(ckpt["config"]).to(device)
         net.load_state_dict(ckpt["nets"][team])
         nets[team] = net.eval()
     return nets

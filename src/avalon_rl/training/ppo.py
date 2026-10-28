@@ -14,6 +14,7 @@ import torch
 from torch import nn
 
 from ..agents.policy import ActorCritic, masked_logits
+from ..env.actions import N_ACTIONS
 from .rollout import Batch
 
 
@@ -72,20 +73,26 @@ def ppo_update(
     use_mmd = mmd is not None and mmd.enabled
     if use_mmd and mmd.magnet == "moving" and magnet is None:
         raise ValueError("moving-magnet MMD needs a magnet network")
+    if use_mmd and net.comm:
+        raise NotImplementedError("MMD is only implemented for the silent game")
     t = lambda x: torch.as_tensor(x, device=device)  # noqa: E731
     obs, masks, actions = t(batch.obs), t(batch.masks), t(batch.actions)
+    comm_obs = t(batch.comm_obs) if net.comm else None
     old_logps, advantages, returns = t(batch.logps), t(batch.advantages), t(batch.returns)
+    is_msg = actions[:, 0] < 0  # message decisions use no game-action head
 
     n = len(batch)
-    keys = ["policy_loss", "value_loss", "entropy", "approx_kl", "clipfrac"] + (["magnet_kl"] if use_mmd else [])
+    keys = ["policy_loss", "value_loss", "entropy", "approx_kl", "clipfrac"]
+    keys += (["msg_entropy"] if net.comm else []) + (["magnet_kl"] if use_mmd else [])
     stats: dict[str, list[float]] = {k: [] for k in keys}
     net.train()
     for _ in range(cfg.epochs):
         order = rng.permutation(n)
         for start in range(0, n, cfg.minibatch_size):
             idx = torch.as_tensor(order[start:start + cfg.minibatch_size], device=device)
-            dist, value = net.distribution(obs[idx], masks[idx])
-            new_logps = dist.log_prob(actions[idx])
+            new_logps, entropies, value, logits = net.evaluate(
+                obs[idx], comm_obs[idx] if comm_obs is not None else None, masks[idx], actions[idx]
+            )
             log_ratio = new_logps - old_logps[idx]
             ratio = log_ratio.exp()
 
@@ -94,14 +101,15 @@ def ppo_update(
                 adv = (adv - adv.mean()) / (adv.std() + 1e-8)
             policy_loss = torch.max(-adv * ratio, -adv * ratio.clamp(1 - cfg.clip_coef, 1 + cfg.clip_coef)).mean()
             value_loss = 0.5 * (value - returns[idx]).pow(2).mean()
-            entropy = dist.entropy().mean()
-            loss = policy_loss - cfg.ent_coef * entropy + cfg.vf_coef * value_loss
+            loss = policy_loss - cfg.ent_coef * entropies.mean() + cfg.vf_coef * value_loss
             if use_mmd:
                 magnet_logits = None
                 if mmd.magnet == "moving":
                     with torch.no_grad():
                         magnet_logits = magnet.actor(obs[idx])
-                kl_magnet = magnet_kl(dist.logits, magnet_logits, masks[idx])
+                action_mask = masks[idx][:, :N_ACTIONS]
+                policy_logp = torch.log_softmax(masked_logits(logits[:, :N_ACTIONS], action_mask), dim=-1)
+                kl_magnet = magnet_kl(policy_logp, magnet_logits, action_mask)
                 loss = loss + mmd.alpha * kl_magnet
 
             optimizer.zero_grad()
@@ -112,13 +120,17 @@ def ppo_update(
             with torch.no_grad():
                 stats["policy_loss"].append(policy_loss.item())
                 stats["value_loss"].append(value_loss.item())
-                stats["entropy"].append(entropy.item())
+                msg_rows = is_msg[idx]
+                if (~msg_rows).any():  # entropy of game-action decisions, comparable with the silent baseline
+                    stats["entropy"].append(entropies[~msg_rows].mean().item())
+                if net.comm and msg_rows.any():
+                    stats["msg_entropy"].append(entropies[msg_rows].mean().item())
                 stats["approx_kl"].append(((ratio - 1) - log_ratio).mean().item())
                 stats["clipfrac"].append(((ratio - 1).abs() > cfg.clip_coef).float().mean().item())
                 if use_mmd:
                     stats["magnet_kl"].append(kl_magnet.item())
 
-    out = {k: float(np.mean(v)) for k, v in stats.items()}
+    out = {k: float(np.mean(v)) if v else float("nan") for k, v in stats.items()}
     var_returns = float(np.var(batch.returns))
     out["explained_variance"] = float("nan") if var_returns == 0 else 1 - float(np.var(batch.returns - batch.values)) / var_returns
     out["samples"] = n

@@ -14,7 +14,7 @@ from __future__ import annotations
 import numpy as np
 
 from .game import AvalonGame
-from .rules import MAX_PROPOSALS, N_DECISION_PHASES, N_PLAYERS, N_QUESTS, N_ROLES, Phase
+from .rules import MAX_PROPOSALS, N_DECISION_PHASES, N_PLAYERS, N_QUESTS, N_ROLES
 
 _N_PROPOSALS = N_QUESTS * MAX_PROPOSALS
 
@@ -61,7 +61,7 @@ def encode(game: AvalonGame, player: int) -> np.ndarray:
     obs[LAYOUT["known_evil"]] = known_evil[perm]
     obs[LAYOUT["merlin_candidate"]] = candidates[perm]
 
-    if game.phase != Phase.DONE:
+    if game.phase < N_DECISION_PHASES:  # discussion phases are flagged in the communication features instead
         obs[LAYOUT["phase"]][int(game.phase)] = 1.0
     if game.quest < N_QUESTS:
         obs[LAYOUT["quest_index"]][game.quest] = 1.0

@@ -1,0 +1,50 @@
+# Communication configuration M: minimal communication, (2) alignment judgment + (3) rationale.
+# Identical to baseline_silent.yaml (S) except for the `comm` block and the branch start: each seed starts from
+# its own S checkpoint at half the budget (checkpoint_01460.pt, 747,520 games) and trains the remaining
+# 752,640 games (1,470 iterations), so every configuration has the same total budget as S (1,500,160 games).
+# The silent weights are embedded with zero weights on all message inputs and outputs, so the run starts by
+# playing exactly like S. The PPO update runs on the GPU (rollouts always run on the CPU).
+name: comm_M
+seed: 0
+device: cuda
+total_games: 752640
+games_per_iter: 512
+checkpoint_every: 20
+out_dir: runs
+init_from: runs/baseline_silent/seed{seed}/checkpoint_01460.pt
+
+comm:
+  enabled: true
+  claim: false
+  alignment: true
+  rationale: true
+  team: false
+  intent: false
+
+model:
+  hidden_sizes: [256, 256]
+
+ppo:
+  lr: 3.0e-4
+  epochs: 4
+  minibatch_size: 2048
+  clip_coef: 0.2
+  vf_coef: 0.5
+  ent_coef: 0.01
+  max_grad_norm: 0.5
+  gamma: 1.0            # finite game with a single terminal reward
+  gae_lambda: 0.95
+  norm_adv: true
+
+opponents:
+  p_self: 0.5           # both teams current policies
+  p_pool: 0.25          # one team replaced by a past snapshot
+  p_rule: 0.25          # one team replaced by the rule-based player
+  snapshot_every: 10
+  pool_size: 20
+  rule_fail_prob: 0.9
+  rule_merlin_knowledge_prob: 0.5   # rule Merlin acts on his knowledge only half the time
+
+eval:
+  every: 20
+  games: 512

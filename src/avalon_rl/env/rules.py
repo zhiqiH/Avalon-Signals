@@ -38,9 +38,12 @@ class Phase(IntEnum):
     QUEST = 2
     ASSASSINATE = 3
     DONE = 4
+    DISCUSS = 5  # communication configurations only: one message per player between proposal and vote
+    EVIL_DISCUSS = 6  # communication configurations only: the two evil players talk before the assassination
 
 
-N_DECISION_PHASES = 4  # PROPOSE, VOTE, QUEST, ASSASSINATE
+N_DECISION_PHASES = 4  # PROPOSE, VOTE, QUEST, ASSASSINATE (the phases encoded in the silent observation)
+DISCUSSION_PHASES = frozenset({Phase.DISCUSS, Phase.EVIL_DISCUSS})
 
 
 class WinReason(IntEnum):
