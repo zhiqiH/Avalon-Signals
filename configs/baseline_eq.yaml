@@ -1,6 +1,8 @@
-# Main silent baseline S-eq: self-play PPO + magnetic mirror descent (MMD), aiming at an approximate Nash
-# equilibrium that does not depend on a particular opponent. Identical to baseline_silent.yaml (the secondary
-# baseline S-ind) except for the `mmd` block and running on CPU from the start.
+# ARCHIVED EXPERIMENT, not a project baseline (the baseline is baseline_silent.yaml).
+# S-eq: self-play PPO + magnetic mirror descent (MMD), tried on 2026-10-28 to approach a Nash equilibrium.
+# At 1.5M games x 3 seeds its approximate exploitability was 0.577/0.619/0.615 (mean 0.604) vs 0.649 for plain
+# self-play, and its cross-seed gap was unchanged, so the project does not target an equilibrium.
+# Identical to baseline_silent.yaml except for the `mmd` block.
 # mmd.alpha was chosen by a pilot (seed 0, 296,960 games, 100k-game best responses; exploitability, lower is better):
 #   S-ind (no MMD) 0.580 | moving magnet K=50: alpha 0.03 -> 0.541, 0.1 -> 0.438, 0.3 -> 0.660 | uniform magnet alpha 0.1 -> 0.696
 name: baseline_eq

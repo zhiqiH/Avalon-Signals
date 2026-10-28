@@ -1,10 +1,12 @@
-# Silent baseline S: no communication; self-play PPO for both teams.
-# These are starting values. Settle them in the pilot (configs/pilot_silent.yaml),
-# then keep them fixed for every configuration in the formal comparison.
+# Final silent baseline S (fixed 2026-10-28): no communication; self-play PPO for both teams; seeds 0, 1, 2.
+# Every communication configuration uses these settings unchanged. Trained to 1,500,160 games (2,930 iterations)
+# per seed; the branch point for the communication configurations is checkpoint_01460.pt (747,520 games).
+# The first ~100k games of each seed ran the PPO update on CUDA, the rest on CPU (CPU is faster for these
+# small networks and avoided a CUDA hang). Final evaluation: results/tables/baseline_silent_final.json.
 name: baseline_silent
 seed: 0
-device: auto            # rollouts always run on CPU; the PPO update uses this device
-total_games: 100000     # training budget B (candidate range 20k-100k games)
+device: cpu             # rollouts always run on CPU; the PPO update uses this device
+total_games: 1500000    # training budget B
 games_per_iter: 512
 checkpoint_every: 20
 out_dir: runs

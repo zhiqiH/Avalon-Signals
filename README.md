@@ -4,7 +4,7 @@ Graduate term project for **CS 7329 Reinforcement Learning** at Southern Methodi
 
 What do agents gain from talking in a hidden-role game? This project trains multi-agent reinforcement learning agents to play six-player *The Resistance: Avalon*, first **in silence** — using only public actions such as team proposals, votes and mission results — and then with a **structured five-slot message channel**. Comparing the two isolates what explicit communication adds to win rates, to strategic behavior, and to the information carried by public actions.
 
-**Status:** research design complete. The environment, scripted players and evaluation are implemented and tested. The secondary silent baseline S-ind (plain self-play PPO) has been trained to 1.5M games × 3 seeds. The main baseline S-eq (PPO + magnetic mirror descent) is being tuned. Communication configurations come next.
+**Status:** research design complete. The environment, scripted players and evaluation are implemented and tested. The silent baseline S (self-play PPO) is fixed: 3 seeds × 1.5M games, results in [results/tables/baseline_silent_final.json](results/tables/baseline_silent_final.json). Communication configurations come next.
 
 ## Research Questions
 
@@ -37,17 +37,16 @@ What do agents gain from talking in a hidden-role game? This project trains mult
 
 | Config | ① | ② | ③ | ④ | ⑤ | Purpose |
 |---|:-:|:-:|:-:|:-:|:-:|---|
-| S-eq | | | | | | Main silent baseline (control): approximate Nash equilibrium |
-| S-ind | | | | | | Secondary silent baseline: plain self-play |
+| S | | | | | | Silent baseline (control): self-play PPO |
 | M | | ✓ | ✓ | | | Minimal communication: who is good or evil, and why |
 | M+Claim | ✓ | ✓ | ✓ | | | Adds role claims |
 | M+Team | | ✓ | ✓ | ✓ | | Adds team suggestions |
 | M+Intent | | ✓ | ✓ | | ✓ | Adds action intent |
 | F | ✓ | ✓ | ✓ | ✓ | ✓ | Full structured communication |
 
-**Two silent baselines.** Plain self-play co-adapts: each seed learns conventions that only work against its own partner. In S-ind's 3 × 3 cross-seed play, good wins 0.40 against its own seed's evil but 0.53 against other seeds' evil. The main baseline **S-eq** therefore targets an opponent-independent approximate Nash equilibrium. It adds a magnetic mirror descent term α·KL(π ‖ magnet) to PPO, where the magnet is a frozen copy of the policy refreshed every K iterations. Its distance from equilibrium is reported as approximate exploitability: BR-good win + BR-evil win − 1, which is 0 at a Nash equilibrium, measured with learned best responses. Every communication configuration is trained with the S-eq algorithm. S-ind is kept to measure co-adaptation.
+**Ablations.** The primary effect is ΔGood = P(good wins | F) − P(good wins | S). The M+k configurations measure what each slot adds on top of minimal communication. Switching individual slots off in a frozen F policy measures how much the trained policy depends on them.
 
-**Ablations.** The primary effect is ΔGood = P(good wins | F) − P(good wins | S-eq). When both policies are close to equilibrium, this approximates the change in the game's equilibrium value. Cheap talk cannot change the value of a two-player zero-sum game, but it can in a two-team game, where teammates hold different private information. The M+k configurations measure what each slot adds on top of minimal communication. Switching individual slots off in a frozen F policy measures how much the trained policy depends on them.
+**Cross-seed evaluation.** Self-play learns conventions that only work inside one training run. In the silent baseline, good wins 0.39 against its own seed's evil but 0.54 against other seeds' evil. Every configuration therefore reports a 3 × 3 matrix of good_i vs evil_j, and ΔGood is given on both same-seed and cross-seed games. Seeds are only crossed at evaluation, never in training. The project measures a learning system and does not target a Nash equilibrium: an equilibrium-regularized variant (PPO + magnetic mirror descent, `configs/baseline_eq.yaml`, archived) reached approximate exploitability 0.60 vs 0.65 for plain self-play at 1.5M games, which is no meaningful move toward equilibrium.
 
 ## Method
 
@@ -56,7 +55,6 @@ What do agents gain from talking in a hidden-role game? This project trains mult
   - **Actions:** a flat 30-way action space covering team proposals, votes, quest cards and the assassination; illegal actions are masked before the softmax.
 - **Messages and reward:** message heads are trained RIAL-style with the same terminal ±1 reward (γ = 1, GAE).
 - **Self-play:** agents train against an opponent pool that mixes the current, historical and rule-based policies.
-- **Equilibrium regularization (S-eq and all communication configurations):** a magnetic mirror descent KL term toward a moving magnet policy. Its strength α and refresh interval K are chosen in a pilot by lowest exploitability.
 - **Silent-first training:**
   - The silent baseline is trained first.
   - Each communication configuration branches from the same seed's silent checkpoint at half the training budget.
@@ -65,7 +63,7 @@ What do agents gain from talking in a hidden-role game? This project trains mult
 - **Diagnostics before full runs:** a toy check with rule-based evil players, sender-side mutual information, and listener-side causal influence.
 - **Evaluation:**
   - Frozen policies play 1,000 games per condition and seed with paired role assignments.
-  - Every configuration also reports a 3 × 3 cross-seed matrix and approximate exploitability.
+  - Every configuration also reports a 3 × 3 cross-seed matrix; approximate exploitability (learned best responses) is an optional diagnostic.
   - Results are reported with seed-level bootstrap confidence intervals, and the win rate is decomposed into mission and assassination outcomes.
 
 ## Repository Structure
@@ -80,12 +78,12 @@ What do agents gain from talking in a hidden-role game? This project trains mult
 ├── src/avalon_rl/
 │   ├── env/                 Rules, game state machine, action space, information-state encoding
 │   ├── agents/              Actor–critic policy, random and rule-based players
-│   ├── training/            Trajectory recording and GAE, PPO + MMD update, opponent pool, trainer, best response
+│   ├── training/            Trajectory recording and GAE, PPO update, opponent pool, trainer, best response (diagnostic)
 │   ├── evaluation/          Paired frozen evaluation and win-rate decomposition
 │   ├── comm/                Five-slot message protocol (next step)
 │   ├── runner.py            Plays many games in lockstep with batched decisions
 │   └── config.py            YAML-backed training configuration
-├── configs/                 baseline_eq.yaml (S-eq), baseline_silent.yaml (S-ind), pilot_silent.yaml (short pilot)
+├── configs/                 baseline_silent.yaml (S, final), pilot_silent.yaml (short pilot), baseline_eq.yaml (archived experiment)
 ├── scripts/                 train.py, evaluate.py, crossplay.py, best_response.py, exploitability.py, plot_training.py, benchmark.py, launch_windows.ps1
 ├── tests/                   Rules, information leakage, observation encoding, GAE, a short training run
 ├── notebooks/               Analysis notebooks
@@ -105,11 +103,8 @@ pytest                                                     # rules, leakage, GAE
 python scripts/benchmark.py --games 2048                   # simulation and update throughput on this machine
 python scripts/train.py --config configs/pilot_silent.yaml # 2,048-game pilot
 python scripts/train.py --config configs/baseline_silent.yaml --seed 0
-python scripts/train.py --config configs/baseline_eq.yaml --seed 0       # main baseline S-eq
-python scripts/evaluate.py --checkpoint runs/baseline_eq/seed0/latest.pt --games 1000
-python scripts/best_response.py --checkpoint runs/baseline_eq/seed0/latest.pt --side good
-python scripts/best_response.py --checkpoint runs/baseline_eq/seed0/latest.pt --side evil
-python scripts/exploitability.py runs/baseline_eq/seed0
+python scripts/evaluate.py --checkpoint runs/baseline_silent/seed0/latest.pt --games 1000
+python scripts/crossplay.py runs/baseline_silent/seed{0,1,2}/latest.pt     # 3 x 3 cross-seed matrix
 ```
 
 - **Outputs:** each run writes `config.yaml`, `metrics.jsonl` (one JSON object per iteration) and checkpoints to `runs/<name>/seed<k>/`.
@@ -135,7 +130,7 @@ Code is edited on a Mac. Experiments run over SSH on a Windows laptop with an RT
 **Starting runs.** Windows OpenSSH kills a session's processes when the connection drops. Start runs with the launcher, which keeps them alive after a disconnect:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\launch_windows.ps1 -Config configs\baseline_eq.yaml -Seeds 0,1,2 -Device cpu -Threads 4
+powershell -ExecutionPolicy Bypass -File scripts\launch_windows.ps1 -Config configs\baseline_silent.yaml -Seeds 0,1,2 -Device cpu -Threads 4
 ```
 
 On the laptop's CPU (Ryzen 9 8945HX), training is faster than on its GPU for these small networks. The launcher can also start any Python job detached with `-Raw` and `-Name`, for example a best-response run.
