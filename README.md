@@ -4,7 +4,7 @@ Graduate term project for **CS 7329 Reinforcement Learning** at Southern Methodi
 
 What do agents gain from talking in a hidden-role game? This project trains multi-agent reinforcement learning agents to play six-player *The Resistance: Avalon*, first **in silence** — using only public actions such as team proposals, votes and mission results — and then with a **structured five-slot message channel**. Comparing the two isolates what explicit communication adds to win rates, to strategic behavior, and to the information carried by public actions.
 
-**Status:** research design complete. The environment, scripted players and evaluation are implemented and tested. The silent baseline S (self-play PPO) is fixed: 3 seeds × 1.5M games, results in [results/tables/baseline_silent_final.json](results/tables/baseline_silent_final.json). Communication configurations come next.
+**Status:** research design complete. The environment, scripted players and evaluation are implemented and tested. The silent baseline S (self-play PPO) is fixed: 3 seeds × 1.5M games, results in [results/tables/baseline_silent_final.json](results/tables/baseline_silent_final.json). The five-slot communication module is implemented and tested; the communication runs come next.
 
 ## Research Questions
 
@@ -80,10 +80,10 @@ What do agents gain from talking in a hidden-role game? This project trains mult
 │   ├── agents/              Actor–critic policy, random and rule-based players
 │   ├── training/            Trajectory recording and GAE, PPO update, opponent pool, trainer, best response (diagnostic)
 │   ├── evaluation/          Paired frozen evaluation and win-rate decomposition
-│   ├── comm/                Five-slot message protocol (next step)
+│   ├── comm/                Five-slot message protocol: slots, legality, observation features
 │   ├── runner.py            Plays many games in lockstep with batched decisions
 │   └── config.py            YAML-backed training configuration
-├── configs/                 baseline_silent.yaml (S, final), pilot_silent.yaml (short pilot), baseline_eq.yaml (archived experiment)
+├── configs/                 baseline_silent.yaml (S, final), comm_M / comm_M_claim / comm_M_team / comm_M_intent / comm_F, pilot_silent.yaml, baseline_eq.yaml (archived)
 ├── scripts/                 train.py, evaluate.py, crossplay.py, best_response.py, exploitability.py, plot_training.py, benchmark.py, launch_windows.ps1
 ├── tests/                   Rules, information leakage, observation encoding, GAE, a short training run
 ├── notebooks/               Analysis notebooks
