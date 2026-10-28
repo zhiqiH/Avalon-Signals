@@ -4,7 +4,7 @@ from docgen import DocBuilder
 d = DocBuilder(
     title="六人阿瓦隆中显式交流的作用",
     subtitle="Research Design: Structured Communication in Avalon",
-    meta_line="CS7329 Reinforcement Learning ｜ 研究设计 ｜ 2026年10月20日 ｜ 配套：《实现方案》",
+    meta_line="CS7329 Reinforcement Learning ｜ 研究设计 ｜ 2026年10月28日 ｜ 配套：《实现方案》",
     subject="Research Design: Structured Communication in Avalon",
     keywords="Avalon, MARL, Reinforcement Learning, Communication, CS7329",
 )
@@ -22,6 +22,7 @@ d.table(
     ], [1.12, 2.75, 2.84]
 )
 d.p("以沉默为基线：沉默对局的决策更少，也不存在“消息被忽略”的 cheap-talk 学习难题，更容易训练成稳定的基线，并可作为各通信配置的起点。研究因此表述为“交流带来了什么”。不预设方向：交流可能帮助好人协调，也可能帮助坏人欺骗或找到梅林；不同信息的作用方向也可能相反，例如身份声明可能帮助派西维尔，也可能把梅林暴露给刺客。", boldlead="以沉默为基线：")
+d.p("以近似均衡为主基线：普通 self-play 学到的是与特定对手共同适应的策略，同一训练群体内的胜率会把“交流的作用”和“这群智能体恰好学到的约定”混在一起。主基线 S-eq 因此以与对手无关的近似纳什均衡为目标（PPO 加磁性镜像下降 MMD [14]），并用近似可利用度报告它离均衡多远 [15]；普通 self-play 的 S-ind 保留为次基线，用来衡量共同适应本身有多大。", boldlead="以近似均衡为主基线：")
 
 d.h("2 文献定位")
 d.table(
@@ -35,11 +36,15 @@ d.table(
         ["RIAL [7]\nCao et al. [8]", "把消息当作 RL 动作训练；自利智能体难以利用 cheap talk", "通信的训练方式与主要风险"],
         ["Lowe et al. [9]", "涌现通信的测量方法", "区分“消息包含信息”与“听者利用了消息”"],
         ["PPO [10]\nMAPPO [11]", "clipped 策略梯度；多智能体 PPO 的实现经验", "训练算法"],
+        ["MMD [14]", "策略梯度加上指向 magnet 策略的 KL 正则；magnet 定期更新时，在两人零和博弈中趋向纳什均衡", "主基线 S-eq 的训练算法"],
+        ["Timbers et al. [15]", "固定被评估策略，用 RL 训练最优反应，估计可利用度", "衡量各配置离均衡多远"],
+        ["Celli & Gatti [16]", "两队零和博弈的均衡概念（TME、TMECor、TMECom）", "队内能否交流会改变队伍博弈的均衡值，是 ΔV 的理论依据"],
     ], [1.45, 2.40, 2.86]
 )
 d.p("拟贡献：", boldlead="拟贡献：")
 d.bullets([
     "以沉默对局为基线，在规则、算法和预算上受控、逐级加入通信的实验；",
+    "以近似纳什均衡策略为主基线，并报告可利用度，把交流的作用表述为均衡值的变化，而不只是某一训练群体内的胜率变化；",
     "用可独立开关的五槽协议，把“交流”分解为可逐项加入的信息类型；",
     "把胜负分解为任务与刺杀两条路径，并用干预区分“行为包含信息”与“行为被他人利用”。",
 ])
@@ -81,10 +86,17 @@ d.bullets([
 ])
 
 d.h("5 实验设计")
+d.p("两个沉默基线：", boldlead="两个沉默基线：")
+d.bullets([
+    ("S-eq（主基线）：", "PPO 加 MMD 正则，magnet 为定期刷新的策略副本，目标是与对手无关的近似纳什均衡。正则强度与刷新间隔由小规模 pilot 按可利用度选定，之后所有通信配置沿用。"),
+    ("S-ind（次基线）：", "不加正则的 PPO self-play，对手为当前自己、历史快照与规则玩家。它衡量共同适应：同种子胜率与跨种子胜率之差、可利用度与 S-eq 之差。"),
+    ("通信配置的训练方式：", "M、M+k、F 都用 S-eq 的算法与超参数训练，因此主比较是“均衡对均衡”。"),
+])
 d.table(
     ["配置", "身份", "判断", "依据", "组队", "倾向", "作用"],
     [
-        ["S", "关", "关", "关", "关", "关", "沉默基线（对照组）"],
+        ["S-eq", "关", "关", "关", "关", "关", "沉默主基线（对照组），近似均衡"],
+        ["S-ind", "关", "关", "关", "关", "关", "沉默次基线，普通 self-play"],
         ["M", "关", "开", "开", "关", "关", "最小通信：谁好谁坏、为什么"],
         ["M+Claim", "开", "开", "开", "关", "关", "逐项加入：身份声明"],
         ["M+Team", "关", "开", "开", "开", "关", "逐项加入：组队建议"],
@@ -92,11 +104,12 @@ d.table(
         ["F", "开", "开", "开", "开", "开", "完整结构化通信"],
     ], [0.95, 0.6, 0.6, 0.6, 0.6, 0.6, 2.76], keep=True
 )
-d.p("核心层为 S、M、F；扩展层为在 M 上逐项加入一个槽位的三个配置。")
+d.p("核心层为 S-eq、S-ind、M、F；扩展层为在 M 上逐项加入一个槽位的三个配置。下文的 S 不加说明时指 S-eq。")
 d.table(
     ["实验", "训练配置", "评估配置", "回答的问题"],
     [
-        ["S → S", "沉默", "沉默", "对照组"],
+        ["S → S", "沉默（S-eq）", "沉默", "对照组"],
+        ["S-ind → S-ind", "沉默（普通 self-play）", "沉默", "共同适应的参照"],
         ["M → M", "最小通信", "最小通信", "加入谁好谁坏、为什么的作用"],
         ["F → F", "完整通信", "完整通信", "加入完整结构化通信的作用"],
         ["M+k → M+k", "逐项加入配置", "同一配置", "槽位 k 在最小通信之上的增量"],
@@ -110,12 +123,23 @@ d.bullets([
     ("两类消融互补：", "逐项加入衡量增量，测试时关闭衡量依赖；两者结论不一致，说明槽位之间存在交互。测试时关闭可能含有分布外效应，不等于重新学会在缺少该槽位时游戏。"),
     ("不做 S → F：", "沉默策略从未见过消息，评估时打开信道没有意义。"),
     ("判断依据的识别：", "② 与 ③ 总是同时开启，③ 的作用只能通过在 M、F 上测试时关闭 ③ 来衡量，得到的是依赖程度，不是训练适应后的作用。"),
-    ("控制：", "各配置使用相同的网络结构、输出头、超参数与训练局数，只用掩码改变可用槽位。训练随机种子是重复单位，核心层每个配置 3 个种子。通信配置从同一种子的沉默 checkpoint 分支训练，以便配对比较；但这可能让通信策略沿用沉默时的打法，因此另设从头训练的对照。"),
+    ("控制：", "各配置使用相同的网络结构、输出头、超参数与训练局数，只用掩码改变可用槽位。训练随机种子是重复单位，核心层每个配置 3 个种子。通信配置从同一种子的 S-eq checkpoint 分支，并沿用相同的 MMD 设置，以便配对比较；但这可能让通信策略沿用沉默时的打法，因此另设从头训练的对照。"),
 ])
 
 d.h("6 指标与证据标准")
 d.h("RQ1 游戏平衡", 2)
 d.p("主指标为 ΔGood＝P(Good wins | F → F) − P(Good wins | S → S)。正值表示在本实验设定下交流更有利于好人，负值表示更有利于坏人；阶梯上的相邻差值同样报告。50% 只是胜率对称的参考点，不代表这款非对称游戏应当天然公平。")
+d.p("均衡值的解释：两人零和博弈中，cheap talk 不改变博弈值：听者可以忽略消息，说话者可以说无意义的话。阿瓦隆是两队零和博弈，同队成员之间信息不对称，好人尤其缺少梅林所掌握的信息；公开交流让队友可以传递私有信息，但对手也能听到，因此均衡值可以改变，方向事先未知。[16] 当 S 与 F 都接近均衡时，ΔGood 近似均衡值之差 ΔV＝V(F) − V(S)，回答的是“交流是否改变了这款游戏本身的平衡”，而不只是“这群智能体是否打得不同”。", boldlead="均衡值的解释：")
+d.h("均衡质量（各 RQ 的前提）", 2)
+d.table(
+    ["指标", "量化方式", "用途"],
+    [
+        ["近似可利用度", "分别冻结一方，用 RL 训练另一方的最优反应：BR 好人胜率 ＋ BR 坏人胜率 − 1；纳什均衡处为 0", "比较 S-eq、S-ind 与各通信配置离均衡多远；同一 BR 预算下比较"],
+        ["跨种子交叉对战", "3 × 3 的好人 i 对坏人 j 矩阵；同种子对角线与跨种子非对角线分别汇总", "对角线与非对角线之差衡量共同适应；均衡策略应当两者接近"],
+        ["对规则对手", "冻结策略分别对规则好人与规则坏人的胜率", "排除“彼此都很弱”的退化均衡"],
+    ], [1.2, 3.25, 2.26]
+)
+d.p("证据标准：只有当 S 与 F 的可利用度都较低且相近时，才把 ΔGood 解释为 ΔV；否则报告为该学习系统的经验差，并同时给出跨种子矩阵上的 ΔGood。", boldlead="证据标准：")
 d.p("胜率分解：P(Good wins)＝P(三次任务成功) × [1 − P(刺杀命中梅林 | 三次任务成功)]，另报告三次任务失败与五次否决导致的坏人胜比例。刺杀成功率的分母只能是进入刺杀阶段的对局；在四名好人中随机猜梅林的命中率为 25%，作为刺杀参考线。任务成功率按任务序号报告，未发生的任务不能记作失败。", boldlead="胜率分解：")
 d.h("RQ2 策略行为", 2)
 d.table(
@@ -129,7 +153,7 @@ d.table(
     ], [1.0, 3.30, 2.41]
 )
 d.h("RQ3 隐式信号", 2)
-d.p("以沉默基线 S 为主：没有显式信道时，公开行为是唯一可能的信息传递途径。证据分三层，结论只能达到实际完成的那一层：")
+d.p("以沉默基线 S 为主：没有显式信道时，公开行为是唯一可能的信息传递途径。S-ind 中已观察到只在同种子内有效的约定（例如刺客按座次或最后一名队长猜梅林），S-eq 用来检验这类隐式信号在近似均衡中是否仍然存在。证据分三层，结论只能达到实际完成的那一层：")
 d.bullets([
     ("信息性：", "加入个人投票序列后，对隐藏身份的预测是否更准。只说明行为包含信息。"),
     ("接收者使用：", "遮蔽其他玩家的历史投票身份后，接收者的行动与收益是否改变，并设置 placebo 对照。说明行为线索被利用。"),
@@ -151,7 +175,7 @@ d.table(
 d.h("7 结论边界")
 d.bullets([
     "结论只适用于所定义的槽位、取值范围、角色配置和训练所得策略。结构化消息不等于自由讨论；要声称自然语言交流的作用，需另做自然语言实验并单独报告。",
-    "有限预算下的 self-play 策略不是纳什均衡，本研究测量的是特定学习系统的经验表现；同一训练群体内的胜率只说明该群体内的平衡，需要跨种子的交叉对战加以区分。",
+    "S-eq 只是近似均衡：MMD 的收敛保证针对两人零和博弈，用在两队博弈上是经验做法；可利用度由有限预算学到的最优反应估计，是真实可利用度的下界。因此“接近均衡”是相对的，只在同一 BR 预算与初始化下比较。S-ind 的胜率只说明该训练群体内的平衡。",
     "通信没有被学会时，报告为学习失败，不推广为“交流没有价值”；胜率差很小时，报告区间与可以排除的效应大小；RQ3 只有相关性时，保留为探索结果。",
 ])
 
@@ -169,6 +193,9 @@ d.ref(10, "Schulman, J., Wolski, F., Dhariwal, P., Radford, A., & Klimov, O. (20
 d.ref(11, "Yu, C., Velu, A., Vinitsky, E., Gao, J., Wang, Y., Bayen, A., & Wu, Y. (2022). The Surprising Effectiveness of PPO in Cooperative Multi-Agent Games. NeurIPS 2022 Datasets and Benchmarks Track.", "https://arxiv.org/abs/2103.01955")
 d.ref(12, "Meta Fundamental AI Research Diplomacy Team (FAIR), Bakhtin, A., Brown, N., et al. (2022). Human-level play in the game of Diplomacy by combining language models with strategic reasoning. Science, 378(6624), 1067–1074.", "https://www.science.org/doi/10.1126/science.ade9097")
 d.ref(13, "The Resistance: Avalon Rulebook. Indie Boards & Cards.", "https://cdn.1j1ju.com/medias/a6/dc/c1-the-resistance-avalon-rulebook.pdf")
+d.ref(14, "Sokota, S., D'Orazio, R., Kolter, J. Z., Loizou, N., Lanctot, M., Mitliagkas, I., Brown, N., & Kroer, C. (2023). A Unified Approach to Reinforcement Learning, Quantal Response Equilibria, and Two-Player Zero-Sum Games. ICLR 2023.", "https://arxiv.org/abs/2206.05825")
+d.ref(15, "Timbers, F., Bard, N., Lockhart, E., Lanctot, M., Schmid, M., Burch, N., Schrittwieser, J., Hubert, T., & Bowling, M. (2022). Approximate Exploitability: Learning a Best Response. IJCAI 2022.", "https://arxiv.org/abs/2004.09677")
+d.ref(16, "Celli, A., & Gatti, N. (2018). Computational Results for Extensive-Form Adversarial Team Games. AAAI 2018.", "https://arxiv.org/abs/1711.06930")
 d.p("[C1] CS7329 Fall 2026. Current Topics Presentation and Paper (Graduate Students). 课程项目要求。")
 d.p("[C2] Hahsler, M. CS 7329 Reinforcement Learning 课程大纲与 Introduction_to_Reinforcement_Learning 课程仓库。")
 

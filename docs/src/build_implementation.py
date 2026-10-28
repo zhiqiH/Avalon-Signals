@@ -4,21 +4,21 @@ from docgen import DocBuilder
 d = DocBuilder(
     title="六人阿瓦隆中显式交流的作用",
     subtitle="Implementation Spec: 工程实现方案",
-    meta_line="CS7329 Reinforcement Learning ｜ 实现方案 ｜ 2026年10月20日 ｜ 配套：《研究设计》",
+    meta_line="CS7329 Reinforcement Learning ｜ 实现方案 ｜ 2026年10月28日 ｜ 配套：《研究设计》",
     subject="Implementation Spec: Structured Communication in Avalon",
     keywords="Avalon, MARL, PPO, Implementation, CS7329",
 )
 
 d.h("0 范围一览")
-d.p("本文件只记录怎么实现。配置名称（S、M、M+k、F）与实验条件（如 F → S）的定义见《研究设计》第 5 节。")
+d.p("本文件只记录怎么实现。配置名称（S-eq、S-ind、M、M+k、F）与实验条件（如 F → S）的定义见《研究设计》第 5 节；S 不加说明时指主基线 S-eq。")
 d.table(
     ["模块", "必须实现", "可选"],
     [
         ["环境", "六人状态机、信息过滤、规则与信息泄露测试、随机与规则对手", "PettingZoo 接口包装"],
         ["消息协议", "五槽编码、开关掩码、依据真实性掩码、消息元组日志", "模板渲染成文本"],
-        ["策略与训练", "信息状态向量上的 MLP actor–critic、带掩码的统一动作空间、PPO 与 GAE、self-play 对手池、沉默优先的分支训练", "消息头的行为克隆初始化；从头训练的 F 对照"],
-        ["配置与种子", "S、M、F，各 3 个种子", "M+Claim、M+Team、M+Intent；增至 5 个种子"],
-        ["诊断与评估", "三项通信诊断、冻结评估、按种子配对的 bootstrap", "跨种子交叉对战"],
+        ["策略与训练", "信息状态向量上的 MLP actor–critic、带掩码的统一动作空间、PPO 与 GAE、MMD 正则（S-eq 及各通信配置）、self-play 对手池、沉默优先的分支训练", "消息头的行为克隆初始化；从头训练的 F 对照"],
+        ["配置与种子", "S-eq、S-ind、M、F，各 3 个种子", "M+Claim、M+Team、M+Intent；增至 5 个种子"],
+        ["诊断与评估", "三项通信诊断、冻结评估、近似可利用度、跨种子交叉对战、按种子配对的 bootstrap", "从头训练的最优反应"],
         ["扩展", "—", "自然语言实验；蒸馏（后续工作）"],
     ], [1.15, 3.36, 2.20]
 )
@@ -76,13 +76,20 @@ d.bullets([
     ("不做奖励塑形：", "不给“诚实发言”“成功传信”“隐瞒身份”等额外奖励。"),
     ("超参数：", "在独立 pilot 中确定后，所有配置共用，不能按测试胜率分别挑选。价值归一化、批大小、clip 范围与参数共享方式以 MAPPO 的经验为起点。[2]"),
 ])
+d.p("MMD 正则（S-eq 与各通信配置）：", boldlead="MMD 正则（S-eq 与各通信配置）：")
+d.bullets([
+    ("损失：", "在 PPO 损失上加 α · KL(π ‖ π_magnet)，KL 只在合法动作上计算，与熵项并存。[11]"),
+    ("magnet：", "默认为移动 magnet：每个阵营一份冻结的策略副本，每 K 次迭代用当前策略刷新；它随训练逐步靠近均衡，正则把策略拉向上一个 magnet，抑制 self-play 的循环。另一种是均匀 magnet，等价于加大熵正则，收敛到熵正则化的均衡（QRE）。magnet 存入 checkpoint，resume 时原样恢复。"),
+    ("选参 pilot：", "种子 0 各训练 296,960 局（580 次迭代，与 S-ind 的 checkpoint_00580 对齐）：移动 magnet 的 α ∈ {0.03, 0.1, 0.3}（K＝50，约 2.6 万局刷新一次），以及均匀 magnet、α＝0.1。按近似可利用度选最低的一组，对规则对手的胜率作为平手时的依据；同时测 S-ind 在同一局数下的可利用度作参照。"),
+    ("S-ind：", "与 S-eq 完全相同，只是关闭 MMD。"),
+])
 
 d.h("5 训练流程")
 d.bullets([
-    ("第 1 步 沉默基线：", "先训练 S，直到对随机与规则对手的胜率稳定（关卡一）。S 不过关时不训练任何通信配置，先排查环境、奖励、掩码与 credit assignment。"),
-    ("第 2 步 分支：", "每个种子把 S 训练到总预算 B 的一半，作为分支点。S 从分支点继续训练剩余一半；M、F 以及扩展层的 M+k 从同一分支点加入消息头，再训练相同局数。新增的消息输入权重初始化为零，使分支时的行为与 S 完全相同；消息输出头从均匀分布起步。"),
+    ("第 1 步 沉默基线：", "先训练 S-eq 与 S-ind，直到对规则对手的胜率稳定（关卡一：最后 10 万局与之前 10 万局的均值相差 < 0.02）。S-eq 还需在可利用度上不劣于同局数的 S-ind。S 不过关时不训练任何通信配置，先排查环境、奖励、掩码与 credit assignment。"),
+    ("第 2 步 分支：", "每个种子把 S-eq 训练到总预算 B 的一半，作为分支点（magnet 一并继承）。S 从分支点继续训练剩余一半；M、F 以及扩展层的 M+k 从同一分支点加入消息头，再训练相同局数。新增的消息输入权重初始化为零，使分支时的行为与 S 完全相同；消息输出头从均匀分布起步。"),
     ("第 3 步 对手池：", "pilot 中尝试每局 50% 当前对手、25% 历史对手、25% 规则对手，正式实验前锁定比例。分支后对手池只收录本配置的 checkpoint；对手的轨迹不参与 on-policy 更新。"),
-    ("预算：", "每个配置先跑 2,000 局 pilot，测吞吐与学习曲线，再在 20,000–100,000 局范围内选定 B。核心层 S、M、F 各 3 个种子，共 9 次训练，分支设计下前半段共享；扩展层 M+k 各 3 个种子。"),
+    ("预算：", "B＝150 万局（S-ind 在 100 万局时仍有种子未稳定，150 万局时对规则对手的六项检查全部稳定），分支点为 750k 局附近的 checkpoint_01460。核心层 S-eq、M、F 各 3 个种子，分支设计下前半段共享；S-ind 3 个种子独立训练；扩展层 M+k 各 3 个种子。"),
     ("从头训练对照（可选）：", "至少保留一个从头训练的 F 种子，检查热启动是否压低了交流的作用。若分支导致消息头完全不被使用，改为所有配置从头训练、预算相同。"),
 ])
 
@@ -102,7 +109,8 @@ d.bullets([
     ("RQ3 遮蔽干预：", "遮蔽其他玩家的历史投票身份，但保留票数、提案结果与当前合法动作，直接修改信息状态向量中的对应字段（投票置 0，即“未知”）；用同长度占位作 placebo；用训练时见过遮蔽输入的辅助条件检验分布外影响。"),
     ("probe 数据划分：", "按完整对局和训练种子划分训练集与测试集，避免同一对局的片段同时出现在两边。"),
     ("统计：", "先报告每个种子的指标，再汇总配对差值、效应量与 95% 区间：按训练种子配对做分层 bootstrap，局内事件按整局归组。单个模型的胜率可另给 Wilson 区间，但不能替代训练间的不确定性。好人最终胜率是预先指定的主指标。"),
-    ("交叉对战（可选）：", "让不同种子的好人与坏人对局，用于区分策略强弱、共同适应与通信效果。"),
+    ("近似可利用度：", "对每个种子的最终 checkpoint，分别冻结好人与坏人，从该 checkpoint 自身对应阵营的网络出发，用相同的 PPO 设置训练 10 万局最优反应，再在 1,000 局固定评估表上测胜率；可利用度＝BR 好人胜率＋BR 坏人胜率－1。所有配置使用同一 BR 预算与初始化，只做相对比较。[12] 可选：从头训练的 BR，检查初始化的影响。"),
+    ("交叉对战：", "每个配置都报告 3 × 3 的好人 i 对坏人 j 矩阵（各 1,000 局配对对局），分别汇总同种子对角线与跨种子非对角线；ΔGood 同时在两者上报告。"),
 ])
 
 d.h("8 数据记录")
@@ -110,8 +118,8 @@ d.p("每局至少记录：game id、训练与评估 seed、配置与槽位开关
 
 d.h("9 算力")
 d.bullets([
-    ("本地优先：", "RTX 5070 Ti Laptop（12 GB 显存）运行引擎、并行环境、小型网络与统计分析。先分别计时 CPU 仿真与 GPU 更新，不默认瓶颈在 GPU。PyTorch 需选用支持 RTX 50 系的 CUDA 12.8 版本。"),
-    ("预算：", "训练时间约为 配置数 × 种子数 × B × 每局训练耗时（分支设计下前半段共享），另加调参与评估。初始上限设为 40–60 GPU 小时，用 pilot 修订；超出时先减小 B，保留种子数。"),
+    ("本地优先：", "远程 Windows 游戏本（Ryzen 9 8945HX 16 核、RTX 5070 Ti Laptop 12 GB）。实测网络较小时 CPU 训练更快，GPU 同步还曾导致挂起，因此训练与最优反应都用 CPU：每个进程 4 线程，多个种子或配置并行。PyTorch 选用支持 RTX 50 系的 CUDA 12.8 版本，以备更大的网络。"),
+    ("预算：", "训练时间约为 配置数 × 种子数 × B × 每局训练耗时（分支设计下前半段共享），另加调参与评估。实测 S-ind 每 50 万局、3 个种子并行约 2–2.5 小时；每次 10 万局的最优反应约 15–20 分钟。超出预算时先减小 B，保留种子数。"),
     ("HPC：", "只用于并行独立种子与扩展评估，核心部分不依赖 HPC 配额。"),
     ("环境记录：", "开跑前记录显存、内存、功耗限制与软件版本。"),
 ])
@@ -135,5 +143,7 @@ d.ref(7, "Light, J. et al. Avalon-LLM：AvalonBench 与 STRATEGIST 代码库；�
 d.ref(8, "Light, J., Cai, M., Shen, S., & Hu, Z. (2023). AvalonBench: Evaluating LLMs Playing the Game of Avalon. NeurIPS 2023 Foundation Models for Decision Making Workshop.", "https://arxiv.org/abs/2310.05036")
 d.ref(9, "Meta Fundamental AI Research Diplomacy Team (FAIR), Bakhtin, A., Brown, N., et al. (2022). Human-level play in the game of Diplomacy by combining language models with strategic reasoning. Science, 378(6624), 1067–1074.", "https://www.science.org/doi/10.1126/science.ade9097")
 d.ref(10, "Rusu, A. A., Colmenarejo, S. G., Gulcehre, C., Desjardins, G., Kirkpatrick, J., Pascanu, R., Mnih, V., Kavukcuoglu, K., & Hadsell, R. (2016). Policy Distillation. ICLR 2016.", "https://arxiv.org/abs/1511.06295")
+d.ref(11, "Sokota, S., D'Orazio, R., Kolter, J. Z., Loizou, N., Lanctot, M., Mitliagkas, I., Brown, N., & Kroer, C. (2023). A Unified Approach to Reinforcement Learning, Quantal Response Equilibria, and Two-Player Zero-Sum Games. ICLR 2023.", "https://arxiv.org/abs/2206.05825")
+d.ref(12, "Timbers, F., Bard, N., Lockhart, E., Lanctot, M., Schmid, M., Burch, N., Schrittwieser, J., Hubert, T., & Bowling, M. (2022). Approximate Exploitability: Learning a Best Response. IJCAI 2022.", "https://arxiv.org/abs/2004.09677")
 
 d.save("Avalon_Implementation_Spec.docx")
