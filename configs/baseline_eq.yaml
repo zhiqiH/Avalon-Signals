@@ -1,7 +1,8 @@
 # Main silent baseline S-eq: self-play PPO + magnetic mirror descent (MMD), aiming at an approximate Nash
 # equilibrium that does not depend on a particular opponent. Identical to baseline_silent.yaml (the secondary
 # baseline S-ind) except for the `mmd` block and running on CPU from the start.
-# mmd.alpha and mmd.magnet_update_every are fixed by the pilot (lowest exploitability at 300k games).
+# mmd.alpha was chosen by a pilot (seed 0, 296,960 games, 100k-game best responses; exploitability, lower is better):
+#   S-ind (no MMD) 0.580 | moving magnet K=50: alpha 0.03 -> 0.541, 0.1 -> 0.438, 0.3 -> 0.660 | uniform magnet alpha 0.1 -> 0.696
 name: baseline_eq
 seed: 0
 device: cpu
@@ -27,9 +28,9 @@ ppo:
 
 mmd:
   enabled: true
-  alpha: 0.1              # weight of KL(pi || magnet); set from the pilot
+  alpha: 0.1              # weight of KL(pi || magnet); lowest exploitability in the pilot
   magnet: moving          # frozen copy of the policy, refreshed every magnet_update_every iterations
-  magnet_update_every: 50 # ~25.6k games between refreshes
+  magnet_update_every: 50 # ~25.6k games between refreshes (not varied in the pilot)
 
 opponents:
   p_self: 0.5
