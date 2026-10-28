@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-from .training.ppo import PPOConfig
+from .training.ppo import MMDConfig, PPOConfig
 
 
 @dataclass
@@ -48,6 +48,7 @@ class TrainConfig:
     resume: bool = False  # continue from <out_dir>/<name>/seed<seed>/latest.pt if it exists
     model: ModelConfig = field(default_factory=ModelConfig)
     ppo: PPOConfig = field(default_factory=PPOConfig)
+    mmd: MMDConfig = field(default_factory=MMDConfig)
     opponents: OpponentConfig = field(default_factory=OpponentConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
 

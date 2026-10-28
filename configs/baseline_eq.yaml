@@ -1,0 +1,45 @@
+# Main silent baseline S-eq: self-play PPO + magnetic mirror descent (MMD), aiming at an approximate Nash
+# equilibrium that does not depend on a particular opponent. Identical to baseline_silent.yaml (the secondary
+# baseline S-ind) except for the `mmd` block and running on CPU from the start.
+# mmd.alpha and mmd.magnet_update_every are fixed by the pilot (lowest exploitability at 300k games).
+name: baseline_eq
+seed: 0
+device: cpu
+total_games: 1500000
+games_per_iter: 512
+checkpoint_every: 20
+out_dir: runs
+
+model:
+  hidden_sizes: [256, 256]
+
+ppo:
+  lr: 3.0e-4
+  epochs: 4
+  minibatch_size: 2048
+  clip_coef: 0.2
+  vf_coef: 0.5
+  ent_coef: 0.01
+  max_grad_norm: 0.5
+  gamma: 1.0
+  gae_lambda: 0.95
+  norm_adv: true
+
+mmd:
+  enabled: true
+  alpha: 0.1              # weight of KL(pi || magnet); set from the pilot
+  magnet: moving          # frozen copy of the policy, refreshed every magnet_update_every iterations
+  magnet_update_every: 50 # ~25.6k games between refreshes
+
+opponents:
+  p_self: 0.5
+  p_pool: 0.25
+  p_rule: 0.25
+  snapshot_every: 10
+  pool_size: 20
+  rule_fail_prob: 0.9
+  rule_merlin_knowledge_prob: 0.5
+
+eval:
+  every: 20
+  games: 512
