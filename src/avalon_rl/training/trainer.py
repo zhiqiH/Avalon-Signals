@@ -30,6 +30,7 @@ from ..evaluation.evaluate import run_matchup
 from ..evaluation.metrics import game_outcome, summarize
 from ..runner import play
 from .checkpoint import comm_config, load_checkpoint, save_checkpoint
+from .gpu_lock import gpu_turn
 from .opponent_pool import OpponentPool
 from .ppo import ppo_update
 from .rollout import TEAMS, TrajectoryRecorder, message_usage
@@ -161,14 +162,15 @@ def train(cfg: TrainConfig) -> Path:
             t1 = time.perf_counter()
 
             entry: dict = {}
-            for t in TEAMS:
-                if len(batches[t]):
-                    stats = ppo_update(nets[t], opts[t], batches[t], cfg.ppo, device, rng,
-                                       mmd=cfg.mmd, magnet=magnets[t] if magnets else None)
-                    entry.update({f"{t}/{k}": v for k, v in stats.items()})
-                    entry.update({f"{t}/says_{k}": v for k, v in message_usage(batches[t]).items()})
-                if rollout_nets[t] is not nets[t]:
-                    rollout_nets[t].load_state_dict(nets[t].state_dict())
+            with gpu_turn(device):  # runs sharing a GPU take turns (see gpu_lock)
+                for t in TEAMS:
+                    if len(batches[t]):
+                        stats = ppo_update(nets[t], opts[t], batches[t], cfg.ppo, device, rng,
+                                           mmd=cfg.mmd, magnet=magnets[t] if magnets else None)
+                        entry.update({f"{t}/{k}": v for k, v in stats.items()})
+                        entry.update({f"{t}/says_{k}": v for k, v in message_usage(batches[t]).items()})
+                    if rollout_nets[t] is not nets[t]:
+                        rollout_nets[t].load_state_dict(nets[t].state_dict())
             t2 = time.perf_counter()
             iteration += 1
             games_seen += len(games)

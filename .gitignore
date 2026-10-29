@@ -27,6 +27,7 @@ wandb/
 *.pt
 *.pth
 *.ckpt
+.gpu.lock
 
 # OS, editor and Office lock files
 .DS_Store

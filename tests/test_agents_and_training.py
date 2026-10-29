@@ -1,4 +1,7 @@
 import json
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +15,7 @@ from avalon_rl.evaluation import run_matchup
 from avalon_rl.runner import play
 from avalon_rl.training import TrajectoryRecorder, gae_terminal
 from avalon_rl.training.checkpoint import load_policies
+from avalon_rl.training.gpu_lock import file_lock
 from avalon_rl.training.trainer import train
 
 PILOT = Path(__file__).resolve().parents[1] / "configs" / "pilot_silent.yaml"
@@ -106,3 +110,16 @@ def test_fresh_start_overwrites_metrics_of_earlier_attempt(tmp_path):
     train(load_config(PILOT, overrides))  # same run dir, not a resume
     lines = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [entry["iteration"] for entry in lines] == [0, 1, 2]
+
+
+def test_gpu_lock_is_exclusive_across_processes(tmp_path):
+    lock = tmp_path / "gpu.lock"
+    child_code = ("import pathlib, time; from avalon_rl.training.gpu_lock import file_lock\n"
+                  f"print('ready', flush=True)\nwith file_lock(pathlib.Path({str(lock)!r})): print(time.time())")
+    with file_lock(lock):
+        child = subprocess.Popen([sys.executable, "-c", child_code], stdout=subprocess.PIPE, text=True)
+        assert child.stdout.readline().strip() == "ready"
+        time.sleep(0.5)  # the child is now waiting for the lock
+        released = time.time()
+    acquired = float(child.communicate(timeout=60)[0])
+    assert child.returncode == 0 and acquired >= released

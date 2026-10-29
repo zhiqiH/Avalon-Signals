@@ -23,6 +23,7 @@ from ..env.game import AvalonGame
 from ..evaluation.evaluate import run_matchup
 from ..runner import play
 from .checkpoint import TEAMS, build_net, comm_config, load_checkpoint, load_policies
+from .gpu_lock import gpu_turn
 from .ppo import PPOConfig, ppo_update
 from .rollout import TrajectoryRecorder
 
@@ -85,9 +86,10 @@ def train_best_response(checkpoint: str | Path, side: str, cfg: BestResponseConf
         recorder = TrajectoryRecorder()
         play(games, good_ctrls, evil_ctrls, rng, on_decision=recorder)
         batch = recorder.build(games, ppo.gamma, ppo.gae_lambda)[side]
-        ppo_update(net, optimizer, batch, ppo, device, rng)
-        if rollout_net is not net:
-            rollout_net.load_state_dict(net.state_dict())
+        with gpu_turn(device):
+            ppo_update(net, optimizer, batch, ppo, device, rng)
+            if rollout_net is not net:
+                rollout_net.load_state_dict(net.state_dict())
         if it % cfg.eval_every == 0 or it == n_iters:
             curve.append((it * cfg.games_per_iter, evaluate()))
             print(f"  iter {it}/{n_iters} games {it * cfg.games_per_iter}: BR win rate {curve[-1][1]:.3f}", flush=True)
