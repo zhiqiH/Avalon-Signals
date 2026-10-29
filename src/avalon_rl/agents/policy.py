@@ -6,7 +6,7 @@ separate MLPs over the information-state vector. Illegal actions are masked befo
 The actor has one categorical head for game actions and, in networks of communication configurations
 (`comm=True`), the 22 message heads of `comm.protocol`; a decision's log-probability is the sum over the
 heads it used. A message is sampled in two stages: the claim and judgments first, then the rationale, team
-suggestion and vetoes, whose logits are conditioned on the stage-A choices (`actor_cond`, zero at the
+suggestion and action intents, whose logits are conditioned on the stage-A choices (`actor_cond`, zero at the
 branch point) on top of the consistency masks. Communication networks also read the message history: each
 message slot (quest x speaker, plus the evil talk) goes through a shared linear encoder, and the per-slot
 codes are concatenated with the silent observation and the other communication features.

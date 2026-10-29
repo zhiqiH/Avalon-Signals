@@ -89,7 +89,7 @@ def test_each_quest_opens_with_one_discussion_leader_last():
 def test_closed_slots_can_only_say_nothing():
     ctx = P.message_context(make_game(comm=M), 1)
     assert ctx["claim_ok"].tolist() == [True, False, False, False]
-    assert ctx["team_ok"].sum() == 1 and not ctx["veto"] and ctx["judge_ok"].all()
+    assert ctx["team_ok"].sum() == 1 and not ctx["intent"] and ctx["judge_ok"].all()
 
 
 def test_judgments_respect_the_role_deck():
@@ -160,29 +160,43 @@ def test_team_suggestions_exclude_the_accused_and_the_leader_suggests_nothing():
     assert np.flatnonzero(mask_of(game, P.H_TEAM)).tolist() == [0]
 
 
-def test_vetoes_cannot_target_trusted_players_or_ones_own_team():
+def test_intents_cannot_contradict_judgments_or_ones_own_suggestion():
     game = make_game(leader=0, comm=F)
     team = 1 + A.TEAM_INDEX[2][(0, 1)]  # seat 1 suggests itself and seat 2
-    assert not mask_of(game, P.H_VETO, judge1=P.J_GOOD)[1]
-    assert not mask_of(game, P.H_VETO, team=team)[1]
-    assert mask_of(game, P.H_VETO + 2, team=team, judge3=P.J_EVIL)[1]
+    assert not mask_of(game, P.H_INTENT, judge1=P.J_GOOD)[P.I_VETO]
+    assert not mask_of(game, P.H_INTENT, judge1=P.J_EVIL)[[P.I_REQUIRE, P.I_BIND]].any()
+    member = mask_of(game, P.H_INTENT, team=team)  # seat 2, in the suggestion
+    assert member[[P.I_REQUIRE, P.I_BIND, P.I_BLAME]].all() and not member[P.I_VETO]
+    outsider = mask_of(game, P.H_INTENT + 2, team=team)  # seat 4
+    assert outsider[[P.I_VETO, P.I_BLAME]].all() and not outsider[[P.I_REQUIRE, P.I_BIND]].any()
+
+
+def test_vote_intents_must_be_jointly_satisfiable():
+    game = make_game(leader=0, comm=F)  # quest 1 sends two players
+    third = mask_of(game, P.H_INTENT + 2, intent1=P.I_REQUIRE, intent2=P.I_REQUIRE)
+    assert not third[P.I_REQUIRE] and third[[P.I_VETO, P.I_BIND, P.I_BLAME]].all()  # bound players can both stay out
+    last = mask_of(game, P.H_INTENT + 4, intent1=P.I_REQUIRE, intent2=P.I_BIND, intent3=P.I_VETO, intent4=P.I_VETO)
+    assert last[P.I_REQUIRE] and not last[[P.I_VETO, P.I_BIND]].any()  # only seat 2 + seat 6 is left
+    with pytest.raises(ValueError):
+        say(game, intent1=P.I_REQUIRE, intent2=P.I_REQUIRE, intent3=P.I_REQUIRE)
 
 
 def test_messages_are_encoded_in_the_observers_frame():
     game = make_game(leader=0, comm=F)  # seat 1 speaks first
     team = 1 + A.TEAM_INDEX[2][(0, 1)]  # seats 1, 2
-    say(game, claim=P.C_MERLIN, judge3=P.J_EVIL, rtype3=P.R_ROLE, team=team, veto3=1)  # about seat 4
+    say(game, claim=P.C_MERLIN, judge3=P.J_EVIL, rtype3=P.R_ROLE, team=team, intent3=P.I_VETO)  # about seat 4
     comm = P.encode_comm(game, 2)
     f = comm[P.COMM_LAYOUT["messages"]].reshape(P.N_MSG_SLOTS, P.MSG_FEAT_DIM)[5]  # quest 1, seat 1 = relative 5
     L, per = P.MSG_LAYOUT, P._SEAT_FIELDS
     assert f[L["spoke"]][0] == 1 and np.flatnonzero(f[L["claim"]]).tolist() == [P.C_MERLIN - 1]
     assert np.flatnonzero(f[L["judge"]]).tolist() == [per["judge"] * 2 + P.J_EVIL - 1]  # seat 4 = relative 2
     assert np.flatnonzero(f[L["rtype"]]).tolist() == [per["rtype"] * 2 + P.R_ROLE - 1]
-    assert np.flatnonzero(f[L["team"]]).tolist() == [0, 5] and np.flatnonzero(f[L["veto"]]).tolist() == [2]
+    assert np.flatnonzero(f[L["team"]]).tolist() == [0, 5]
+    assert np.flatnonzero(f[L["intent"]]).tolist() == [per["intent"] * 2 + P.I_VETO - 1]
     assert np.flatnonzero(comm[P.COMM_LAYOUT["spoken"]]).tolist() == [5]
     assert game.to_record()["discussions"] == [{"quest": 0, "leader": 0, "messages": [{
         "speaker": 1, "claim": "merlin", "judgments": {4: {"judgment": "evil", "basis": "role_knowledge"}},
-        "team": [1, 2], "veto": [4]}]}]
+        "team": [1, 2], "intents": {4: "veto"}}]}]
 
 
 def test_messages_do_not_reveal_hidden_roles():
@@ -191,7 +205,7 @@ def test_messages_do_not_reveal_hidden_roles():
     games = [make_game(roles_a, comm=F), make_game(roles_b, comm=F)]
     for g in games:
         say(g, claim=P.C_SERVANT, judge2=P.J_EVIL, rtype2=P.R_NONE)
-        say(g, judge4=P.J_PERCIVAL, veto1=1)
+        say(g, judge4=P.J_PERCIVAL, intent1=P.I_BIND, intent2=P.I_BLAME)
     assert np.array_equal(P.encode_comm(games[0], 0), P.encode_comm(games[1], 0))
     assert np.array_equal(encode(games[0], 0), encode(games[1], 0))
 
@@ -204,7 +218,7 @@ def test_evil_players_judge_merlin_together_before_the_assassination():
     ctx = P.message_context(game, 4)
     assert ctx["judge_ok"][0].tolist() == [True] + [False] * 7  # relative 1 is the Assassin
     assert np.flatnonzero(ctx["judge_ok"][1]).tolist() == [P.J_NONE, *P.EVIL_TALK_JUDGMENTS]
-    assert not ctx["claim_ok"][1:].any() and not ctx["team_ok"][1:].any() and not ctx["veto"]
+    assert not ctx["claim_ok"][1:].any() and not ctx["team_ok"][1:].any() and not ctx["intent"]
     say(game, judge2=P.J_MERLIN)  # Morgana: seat 0 is Merlin
     assert game.acting_players() == [5]
     say(game)
@@ -300,7 +314,7 @@ def test_short_communication_run_branches_from_a_silent_checkpoint(tmp_path):
                  "init_from": str(tmp_path / "silent" / "seed{seed}" / "latest.pt")}
     run_dir = train(load_config(PILOT, comm_over))
     lines = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text(encoding="utf-8").splitlines()]
-    assert {"good/says_judgment", "good/says_claim", "good/says_veto", "evil/says_judgment",
+    assert {"good/says_judgment", "good/says_claim", "good/says_intent", "evil/says_judgment",
             "good/msg_entropy"} <= set(lines[1])
     assert load_checkpoint(run_dir / "latest.pt")["config"]["comm"]["enabled"]
     assert load_policies(run_dir / "latest.pt")["good"].comm

@@ -17,7 +17,13 @@ contradict itself. Heads, in the speaker's relative frame (r = 1..5 are the othe
     rtype[r]    no basis, quest record, vote record, proposal record, role knowledge       (3) rationale
     rround[r]   quest 1..5 of the cited record                                          (3) rationale
     team        none, or a team of the current quest size (same index as proposals)      (4) team suggestion
-    veto[r]     none, "I will reject any team with player r in this round"                (5) action intent
+    intent[r]   none, veto, require, bind, blame                                         (5) action intent
+
+Action intents announce how the speaker will vote, and explain its votes in advance:
+    veto      "I will reject any team with player r in this round"
+    require   "I will reject any team without player r in this round"
+    bind      "player r and I go together: I will reject any team with exactly one of us in this round"
+    blame     "if this round's quest fails with player r on it, from then on I will reject teams with r"
 
 Consistency rules (enforced by masks, sampled in the order above):
 - claim and judgments respect the role deck: at most one Merlin, one Percival, one Morgana, one Assassin,
@@ -33,9 +39,11 @@ Consistency rules (enforced by masks, sampled in the order above):
                        their roles); "Merlin"/"Morgana" with a Percival claim or no claim;
 - a team suggestion contains nobody the message judges evil; the leader makes no suggestion (its proposal
   follows its message and may include players it suspects);
-- a veto cannot target a player the message judges good or puts in its own suggestion.
+- intents cannot contradict the judgments: no veto on a player judged good, no require or bind with a player
+  judged evil; the vote conditions (veto, require, bind) must be jointly satisfiable by some team of the current
+  size, and by the speaker's own suggestion if it makes one.
 Before the assassination only judgments of good players as Servant, Merlin or Percival (with their rationale,
-without role knowledge) are open. Talk never binds actions: votes may contradict a veto.
+without role knowledge) are open. Talk never binds actions: votes may contradict an announced intent.
 
 A switched-off slot (`CommConfig`) or a slot silenced at test time can only say nothing. The observation tells
 which slots exist in the trained configuration (`slot_open`) but not which are silenced, so a silenced slot looks
@@ -60,7 +68,7 @@ class CommConfig:
     alignment: bool = True  # (2) judgment
     rationale: bool = True
     team: bool = True
-    intent: bool = True  # (5) action intent (vetoes)
+    intent: bool = True  # (5) action intent
     silence: list[str] = field(default_factory=list)  # test time: slots forced to say nothing (F -> F-k, F -> S)
 
     def __post_init__(self) -> None:
@@ -91,15 +99,16 @@ EVIL_TALK_JUDGMENTS = (J_SERVANT, J_MERLIN, J_PERCIVAL)  # before the assassinat
 RATIONALE_TYPES = ("none", "quest", "vote", "proposal", "role_knowledge")
 R_NONE, R_QUEST, R_VOTE, R_PROPOSAL, R_ROLE = range(len(RATIONALE_TYPES))
 RECORD_TYPES = (R_QUEST, R_VOTE, R_PROPOSAL)
-VETO_VALUES = ("none", "veto")
+INTENT_VALUES = ("none", "veto", "require", "bind", "blame")
+I_NONE, I_VETO, I_REQUIRE, I_BIND, I_BLAME = range(len(INTENT_VALUES))
 
 H_CLAIM = 0
 H_JUDGE = 1  # judge[r] is head H_JUDGE + r - 1
 H_RTYPE = H_JUDGE + N_OTHERS
 H_RROUND = H_RTYPE + N_OTHERS
 H_TEAM = H_RROUND + N_OTHERS
-H_VETO = H_TEAM + 1
-N_MSG_HEADS = H_VETO + N_OTHERS
+H_INTENT = H_TEAM + 1
+N_MSG_HEADS = H_INTENT + N_OTHERS
 
 MSG_HEAD_SIZES = (
     (len(CLAIM_VALUES),)
@@ -107,14 +116,14 @@ MSG_HEAD_SIZES = (
     + (len(RATIONALE_TYPES),) * N_OTHERS
     + (N_QUESTS,) * N_OTHERS
     + (1 + A.MAX_TEAMS,)
-    + (len(VETO_VALUES),) * N_OTHERS
+    + (len(INTENT_VALUES),) * N_OTHERS
 )
 MSG_HEAD_OFFSETS = tuple(int(x) for x in np.cumsum((0,) + MSG_HEAD_SIZES[:-1]))
 N_MSG_LOGITS = sum(MSG_HEAD_SIZES)
 # Sampling order. Stage A (claim, judgments) is what the later heads are conditioned on.
 STAGE_A = (H_CLAIM, *range(H_JUDGE, H_JUDGE + N_OTHERS))
 STAGE_B = (*range(H_RTYPE, H_RTYPE + N_OTHERS), *range(H_RROUND, H_RROUND + N_OTHERS), H_TEAM,
-           *range(H_VETO, H_VETO + N_OTHERS))
+           *range(H_INTENT, H_INTENT + N_OTHERS))
 COND_DIM = len(CLAIM_VALUES) + N_OTHERS * len(JUDGE_VALUES)
 
 # TEAM_MEMBERS[k][v, s]: team-head value v (team v-1 of size k, 0 = none) contains relative seat s.
@@ -179,7 +188,7 @@ def message_context(game, speaker: int) -> dict[str, np.ndarray]:
         "claim_ok": claim_ok, "judge_ok": judge_ok, "team_ok": team_ok, "team_members": TEAM_MEMBERS[size],
         "evidence": evidence(game, speaker) if rationale else np.zeros((N_OTHERS, 3, 2, N_QUESTS), dtype=bool),
         "rationale": np.array(rationale), "role_knowledge": np.array(rationale and not evil_talk),
-        "veto": np.array(cfg.can_speak("intent") and not evil_talk),
+        "intent": np.array(cfg.can_speak("intent") and not evil_talk),
     }
 
 
@@ -229,13 +238,31 @@ def head_mask(h: int, msg: np.ndarray, ctx: dict[str, np.ndarray]) -> np.ndarray
     accused = np.isin(msg[:, H_JUDGE:H_JUDGE + N_OTHERS], EVIL_JUDGMENTS)  # relative seats 1..5
     if h == H_TEAM:
         return ctx["team_ok"] & ~(ctx["team_members"][:, :, 1:] & accused[:, None, :]).any(axis=-1)
-    r = h - H_VETO  # veto of relative seat r + 1
+    r = h - H_INTENT  # intent about relative seat r + 1
+    judge = msg[:, H_JUDGE + r]
     team = msg[:, H_TEAM]
-    in_team = (team > 0) & ctx["team_members"][rows, team.clip(0), r + 1]
-    ok = np.zeros((n, len(VETO_VALUES)), dtype=bool)
-    ok[:, 0] = True
-    ok[:, 1] = ctx["veto"] & ~np.isin(msg[:, H_JUDGE + r], GOOD_JUDGMENTS) & ~in_team
+    candidates = ctx["team_members"][:, 1:]
+    real = candidates.any(axis=-1)  # padding rows of smaller quests are empty
+    own = ctx["team_members"][rows, team.clip(0)][:, None]
+    ok = np.zeros((n, len(INTENT_VALUES)), dtype=bool)
+    ok[:, I_NONE] = True
+    chosen = msg[:, H_INTENT:H_INTENT + N_OTHERS].clip(0)  # heads not chosen yet count as none
+    for v in range(1, len(INTENT_VALUES)):
+        intents = chosen.copy()
+        intents[:, r] = v
+        feasible = (_satisfies(candidates, intents) & real).any(axis=1)
+        ok[:, v] = ctx["intent"] & feasible & ((team <= 0) | _satisfies(own, intents)[:, 0])
+    ok[:, I_VETO] &= ~np.isin(judge, GOOD_JUDGMENTS)
+    ok[:, [I_REQUIRE, I_BIND]] &= ~np.isin(judge, EVIL_JUDGMENTS)[:, None]
     return ok
+
+
+def _satisfies(teams: np.ndarray, intents: np.ndarray) -> np.ndarray:
+    """Whether each team (batch, k, 6 relative seats) meets the vote conditions in `intents` (batch, 5)."""
+    others, me = teams[..., 1:], teams[..., :1]
+    it = intents[:, None, :]
+    broken = ((it == I_VETO) & others) | ((it == I_REQUIRE) & ~others) | ((it == I_BIND) & (others != me))
+    return ~broken.any(axis=-1)
 
 
 def sample_messages(ctx: dict[str, np.ndarray], rng: np.random.Generator, first: bool = False) -> np.ndarray:
@@ -251,10 +278,10 @@ def sample_messages(ctx: dict[str, np.ndarray], rng: np.random.Generator, first:
 
 def forced_message(ctx: dict[str, np.ndarray]) -> np.ndarray | None:
     """The only legal message of one speaker when no slot can say anything (all closed or silenced)."""
-    if ctx["claim_ok"][1:].any() or ctx["judge_ok"][:, 1:].any() or ctx["team_ok"][1:].any() or ctx["veto"]:
+    if ctx["claim_ok"][1:].any() or ctx["judge_ok"][:, 1:].any() or ctx["team_ok"][1:].any() or ctx["intent"]:
         return None
     msg = np.full(N_MSG_HEADS, -1, dtype=np.int8)
-    msg[[H_CLAIM, *range(H_JUDGE, H_JUDGE + N_OTHERS), H_TEAM, *range(H_VETO, H_VETO + N_OTHERS)]] = 0
+    msg[[H_CLAIM, *range(H_JUDGE, H_JUDGE + N_OTHERS), H_TEAM, *range(H_INTENT, H_INTENT + N_OTHERS)]] = 0
     return msg
 
 
@@ -288,7 +315,7 @@ _MSG_FIELDS = [
     ("rround", N_PLAYERS * N_QUESTS),
     ("team_flag", 1),
     ("team", N_PLAYERS),
-    ("veto", N_PLAYERS),
+    ("intent", N_PLAYERS * (len(INTENT_VALUES) - 1)),
 ]
 MSG_LAYOUT: dict[str, slice] = {}
 _o = 0
@@ -296,7 +323,8 @@ for _name, _size in _MSG_FIELDS:
     MSG_LAYOUT[_name] = slice(_o, _o + _size)
     _o += _size
 MSG_FEAT_DIM = _o
-_SEAT_FIELDS = {"judge": len(JUDGE_VALUES) - 1, "rtype": len(RATIONALE_TYPES) - 1, "rround": N_QUESTS, "team": 1, "veto": 1}
+_SEAT_FIELDS = {"judge": len(JUDGE_VALUES) - 1, "rtype": len(RATIONALE_TYPES) - 1, "rround": N_QUESTS, "team": 1,
+                "intent": len(INTENT_VALUES) - 1}
 N_MSG_SLOTS = N_QUESTS * N_PLAYERS + N_PLAYERS  # one discussion per quest x speaker, then the evil talk by speaker
 
 _COMM_FIELDS = [
@@ -344,8 +372,8 @@ def message_features(speaker: int, msg: np.ndarray, team_size: int) -> np.ndarra
             f[MSG_LAYOUT["rtype"].start + _SEAT_FIELDS["rtype"] * seat + msg[H_RTYPE + r] - 1] = 1
         if msg[H_RROUND + r] >= 0:
             f[MSG_LAYOUT["rround"].start + N_QUESTS * seat + msg[H_RROUND + r]] = 1
-        if msg[H_VETO + r] > 0:
-            f[MSG_LAYOUT["veto"].start + seat] = 1
+        if msg[H_INTENT + r] > 0:
+            f[MSG_LAYOUT["intent"].start + _SEAT_FIELDS["intent"] * seat + msg[H_INTENT + r] - 1] = 1
     if msg[H_TEAM] > 0:
         f[MSG_LAYOUT["team_flag"]] = 1
         f[MSG_LAYOUT["team"].start + np.array(A.decode_team(speaker, msg[H_TEAM] - 1, team_size))] = 1
@@ -387,7 +415,8 @@ def decode_message(msg: np.ndarray, speaker: int, team_size: int) -> dict:
         out["judgments"] = judged
     if msg[H_TEAM] > 0:
         out["team"] = [int(s) for s in A.decode_team(speaker, msg[H_TEAM] - 1, team_size)]
-    vetoes = [int(seat) for r, seat in enumerate(_others(speaker)) if msg[H_VETO + r] > 0]
-    if vetoes:
-        out["veto"] = vetoes
+    intents = {int(seat): INTENT_VALUES[msg[H_INTENT + r]]
+               for r, seat in enumerate(_others(speaker)) if msg[H_INTENT + r] > 0}
+    if intents:
+        out["intents"] = intents
     return out
