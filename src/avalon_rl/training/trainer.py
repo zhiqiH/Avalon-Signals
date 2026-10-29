@@ -206,8 +206,9 @@ def train(cfg: TrainConfig) -> Path:
                 )
                 if magnets:
                     state["magnets"] = {t: magnets[t].state_dict() for t in TEAMS}
-                save_checkpoint(run_dir / f"checkpoint_{iteration:05d}.pt", **state)
-                save_checkpoint(latest, **state)
+                with gpu_turn(device):  # saving copies the weights off the GPU
+                    save_checkpoint(run_dir / f"checkpoint_{iteration:05d}.pt", **state)
+                    save_checkpoint(latest, **state)
             log.write(json.dumps(entry) + "\n")
             log.flush()
 
