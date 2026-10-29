@@ -6,7 +6,7 @@ from typing import Callable, Sequence
 import numpy as np
 
 from .agents.base import ActResult, Controller, Request
-from .comm.protocol import forced_message, message_mask
+from .comm.protocol import check_messages, forced_message, message_context, stack_contexts
 from .env.game import AvalonGame
 
 DecisionHook = Callable[[Request, ActResult, int], None]
@@ -32,19 +32,18 @@ def play(
     active = [i for i, g in enumerate(games) if not g.done]
     while active:
         chosen: dict[int, dict[int, int | np.ndarray]] = {i: {} for i in active}
-        msg_masks: dict[int, tuple] = {}  # game -> speaker's message masks, reused by the legality check
         groups: dict[tuple[int, str], tuple[Controller, list[Request]]] = {}
         for i in active:
             game = games[i]
             for player in game.acting_players():
                 ctrl = evil_ctrls[i] if game.is_evil_seat(player) else good_ctrls[i]
                 if game.in_discussion:
-                    mask, rtype_valid, rround_valid = msg_masks[i] = message_mask(game, player)
-                    forced = forced_message(mask)
+                    ctx = message_context(game, player)
+                    forced = forced_message(ctx)
                     if forced is not None:
                         chosen[i][player] = forced
                         continue
-                    req = Request(i, game, player, mask, rtype_valid, rround_valid)
+                    req = Request(i, game, player, None, ctx)
                     groups.setdefault((id(ctrl), "speak"), (ctrl, []))[1].append(req)
                     continue
                 mask = game.legal_mask(player)
@@ -60,6 +59,7 @@ def play(
                 decisions = [int(a) for a in result.actions]
             else:
                 result = ctrl.speak(requests, rng)
+                check_messages(result.messages, stack_contexts([r.ctx for r in requests]))
                 decisions = list(result.messages)
             for row, req in enumerate(requests):
                 chosen[req.game_idx][req.player] = decisions[row]
@@ -67,5 +67,5 @@ def play(
                     on_decision(req, result, row)
 
         for i in active:
-            games[i].step(chosen[i], msg_masks.get(i))
+            games[i].step(chosen[i], message_checked=True)  # messages were checked per batch above
         active = [i for i in active if not games[i].done]

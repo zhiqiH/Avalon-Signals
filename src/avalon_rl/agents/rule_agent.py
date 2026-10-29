@@ -14,13 +14,13 @@ Evil players: propose themselves plus innocent-looking good players; approve tea
 member; reject the fifth proposal unless it contains evil; fail quests with probability
 `fail_prob`, only one of them failing when both are on the team.
 Assassin: targets the good player whose votes best tracked which teams contained evil.
-In discussions, rule players say nothing (the leader's team suggestion is its proposal) and ignore messages.
+In discussions, rule players say nothing and ignore messages.
 """
 from __future__ import annotations
 
 import numpy as np
 
-from ..comm.protocol import sample_message
+from ..comm.protocol import sample_messages, stack_contexts
 from ..env import actions as A
 from ..env.game import AvalonGame
 from ..env.rules import MAX_PROPOSALS, N_PLAYERS, N_QUESTS, Phase, Role
@@ -56,9 +56,7 @@ class RuleController:
         return ActResult(np.array([self._act(r.game, r.player, rng) for r in requests], dtype=np.int64))
 
     def speak(self, requests: list[Request], rng: np.random.Generator) -> ActResult:
-        return ActResult(messages=np.stack([
-            sample_message(r.mask, r.rtype_valid, r.rround_valid, rng, first=True) for r in requests
-        ]))
+        return ActResult(messages=sample_messages(stack_contexts([r.ctx for r in requests]), rng, first=True))
 
     # ------------------------------------------------------------------ dispatch
     def _act(self, game: AvalonGame, player: int, rng: np.random.Generator) -> int:

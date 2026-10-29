@@ -8,7 +8,7 @@ from typing import Sequence
 import numpy as np
 
 from ..agents.base import ActResult, Request
-from ..comm.protocol import H_ALIGN, H_CLAIM, H_INTENT, H_NAME, H_RTYPE, H_TEAM, MSG_HEAD_OFFSETS, MSG_HEAD_SIZES, N_OTHERS
+from ..comm.protocol import H_CLAIM, H_JUDGE, H_RTYPE, H_TEAM, H_VETO, MSG_HEAD_OFFSETS, MSG_HEAD_SIZES, N_OTHERS
 from ..env.actions import N_ACTIONS
 from ..env.game import AvalonGame
 from ..env.observation import OBS_DIM
@@ -95,16 +95,16 @@ class TrajectoryRecorder:
 
 
 USAGE_HEADS = {
-    "claim": [H_CLAIM], "alignment": list(range(H_ALIGN, H_ALIGN + N_OTHERS)),
-    "rationale": list(range(H_RTYPE, H_RTYPE + N_OTHERS)), "team": [H_TEAM], "intent": [H_INTENT], "name": [H_NAME],
+    "claim": [H_CLAIM], "judgment": list(range(H_JUDGE, H_JUDGE + N_OTHERS)),
+    "rationale": list(range(H_RTYPE, H_RTYPE + N_OTHERS)), "team": [H_TEAM], "veto": list(range(H_VETO, H_VETO + N_OTHERS)),
 }
 
 
 def message_usage(batch: Batch) -> dict[str, float]:
     """Share of message heads that said something, among heads that had a real choice (two or more legal values).
 
-    For rationale, a real choice exists only for judged players; for the team head, the leader (whose suggestion
-    is fixed to its proposal) is excluded automatically.
+    For rationale, a real choice exists only for judged players; the leader, who makes no team suggestion, is
+    excluded from the team rate automatically.
     """
     out = {}
     if batch.actions.shape[1] == 1:

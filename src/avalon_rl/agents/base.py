@@ -14,10 +14,8 @@ class Request:
     game_idx: int
     game: AvalonGame
     player: int
-    mask: np.ndarray  # act: legal actions (N_ACTIONS,); speak: legal static message values (N_MSG_LOGITS,)
-    # speak only: rationale validity tables from comm.protocol.message_mask
-    rtype_valid: np.ndarray | None = None
-    rround_valid: np.ndarray | None = None
+    mask: np.ndarray | None  # act: legal actions (N_ACTIONS,); speak: None
+    ctx: dict | None = None  # speak: comm.protocol.message_context of the speaker
 
 
 @dataclass

@@ -11,10 +11,10 @@ from .protocol import (
     SLOTS,
     CommConfig,
     encode_comm,
-    message_mask,
+    message_context,
 )
 
 __all__ = [
     "COMM_DIM", "COMM_GLOBAL_DIM", "COMM_LAYOUT", "CommConfig", "MSG_FEAT_DIM", "MSG_HEAD_SIZES", "MSG_LAYOUT",
-    "N_MSG_HEADS", "N_MSG_LOGITS", "N_MSG_SLOTS", "SLOTS", "encode_comm", "message_mask",
+    "N_MSG_HEADS", "N_MSG_LOGITS", "N_MSG_SLOTS", "SLOTS", "encode_comm", "message_context",
 ]
