@@ -4,7 +4,7 @@ Graduate term project for **CS 7329 Reinforcement Learning** at Southern Methodi
 
 What do agents gain from talking in a hidden-role game? This project trains multi-agent reinforcement learning agents to play six-player *The Resistance: Avalon*, first **in silence** — using only public actions such as team proposals, votes and mission results — and then with a **structured five-slot message channel**. Comparing the two isolates what explicit communication adds to win rates, to strategic behavior, and to the information carried by public actions.
 
-**Status:** research design complete. The environment, scripted players and evaluation are implemented and tested. The silent baseline S (self-play PPO) is fixed: 3 seeds × 1.5M games, results in [results/tables/baseline_silent_final.json](results/tables/baseline_silent_final.json). The five-slot communication module is implemented and tested; the communication runs come next.
+**Status:** research design complete. The environment, scripted players and evaluation are implemented and tested. The silent baseline S (self-play PPO) is fixed: 3 seeds × 1.5M games, results in [results/tables/baseline_silent_final.json](results/tables/baseline_silent_final.json). The five-slot communication module (protocol v2: one discussion per quest, eight-value judgments, coherent rationales, action intents) is implemented and tested. Configuration M is training: 3 seeds, 501,760 games each from the S branch point, on the remote laptop's CPU. F and the M+k configurations come next.
 
 ## Research Questions
 
@@ -23,15 +23,21 @@ What do agents gain from talking in a hidden-role game? This project trains mult
 - a single Fail card fails a mission;
 - after three successful missions, the Assassin gets one guess at Merlin.
 
-**Five-slot message protocol.** After each team proposal and before the vote, every player sends one structured message, starting with the leader. Each slot can be switched on or off independently, and every active slot includes a "say nothing" option. Messages may be false; the referee checks only legality.
+**Five-slot message protocol.** The timing follows common tabletop play:
+- every mission opens with one round of public discussion before its first proposal; players speak once each in seat order, starting left of the leader, and the leader speaks last; then the leader proposes and everyone votes;
+- after a rejected proposal, leadership passes on and the next leader proposes at once, without discussion;
+- after the third successful mission, Morgana and then the Assassin each speak once to agree on who Merlin is, before the assassination;
+- there is no dialogue: nobody can address or question another player.
 
-| Slot | Content | Values |
-|---|---|---|
-| ① Role claim | Who I claim to be | none, Servant, Percival, Merlin |
-| ② Alignment judgment | Who I think is good or evil | none / good / evil for each other player |
-| ③ Rationale | Why I judge so | a mission, vote or proposal record (must point to a real event), a role-knowledge claim, or none |
-| ④ Team suggestion | Who should go on the mission | none, or any legal team |
-| ⑤ Action intent | Approve or reject the current team; who should respond | none / approve / reject, plus an optional player |
+Each slot can be switched on or off independently, and every slot can say nothing. Messages may be false or partial and only concern the current round, but one message cannot contradict itself; masks enforce the rules below (full details in `src/avalon_rl/comm/protocol.py`). Talk never binds actions.
+
+| Slot | Content | Values | Rules |
+|---|---|---|---|
+| ① Role claim | Who I claim to be | none, Servant, Percival, Merlin | No evil role can be claimed |
+| ② Judgment | What I think each other player is | per player: none, good, evil, Servant, Merlin, Percival, Morgana, Assassin | Together with the claim, no role more often than the deck holds it |
+| ③ Rationale | Why I judge so | per judged player: a mission, vote or proposal record (with its mission number), role knowledge, or no basis | Cites only finished missions and points the same way as the judgment; role knowledge must match what the claimed role can see |
+| ④ Team suggestion | Who should go on the mission | none, or any team of the current size | Nobody the message judges evil; the leader makes no suggestion, since its proposal follows at once |
+| ⑤ Action intent | How I will vote, and what I will do if the mission fails | per player: none; **veto** (I reject any team with them this round); **require** (I reject any team without them); **bind** (they and I go together: I reject any team with exactly one of us); **blame** (if this mission fails with them on it, I reject their teams from then on) | No veto on a player judged good, no require or bind with a player judged evil; some team of the current size, and my own suggestion if I make one, must satisfy all vote conditions |
 
 **Configuration ladder.**
 
@@ -78,14 +84,14 @@ What do agents gain from talking in a hidden-role game? This project trains mult
 ├── src/avalon_rl/
 │   ├── env/                 Rules, game state machine, action space, information-state encoding
 │   ├── agents/              Actor–critic policy, random and rule-based players
-│   ├── training/            Trajectory recording and GAE, PPO update, opponent pool, trainer, best response (diagnostic)
-│   ├── evaluation/          Paired frozen evaluation and win-rate decomposition
-│   ├── comm/                Five-slot message protocol: slots, legality, observation features
+│   ├── training/            Trajectory recording and GAE, PPO update, opponent pool, trainer, GPU lock, best response (diagnostic)
+│   ├── evaluation/          Paired frozen evaluation, win-rate decomposition, message statistics
+│   ├── comm/                Five-slot message protocol: slots, consistency masks, observation features
 │   ├── runner.py            Plays many games in lockstep with batched decisions
 │   └── config.py            YAML-backed training configuration
 ├── configs/                 baseline_silent.yaml (S, final), comm_M / comm_M_claim / comm_M_team / comm_M_intent / comm_F, pilot_silent.yaml, baseline_eq.yaml (archived)
-├── scripts/                 train.py, evaluate.py, crossplay.py, best_response.py, exploitability.py, plot_training.py, benchmark.py, launch_windows.ps1
-├── tests/                   Rules, information leakage, observation encoding, GAE, a short training run
+├── scripts/                 train.py, evaluate.py, crossplay.py, analyze_messages.py, best_response.py, exploitability.py, plot_training.py, benchmark.py, launch_windows.ps1
+├── tests/                   Rules, information leakage, observation encoding, GAE, message protocol, message statistics, a short training run
 ├── notebooks/               Analysis notebooks
 ├── results/                 Curated figures and tables
 └── runs/                    Training outputs (not tracked)
@@ -105,6 +111,9 @@ python scripts/train.py --config configs/pilot_silent.yaml # 2,048-game pilot
 python scripts/train.py --config configs/baseline_silent.yaml --seed 0
 python scripts/evaluate.py --checkpoint runs/baseline_silent/seed0/latest.pt --games 1000
 python scripts/crossplay.py runs/baseline_silent/seed{0,1,2}/latest.pt     # 3 x 3 cross-seed matrix
+python scripts/train.py --config configs/comm_M.yaml --seed 0              # branches from S checkpoint_01460
+python scripts/evaluate.py --checkpoint runs/comm_M/seed0/latest.pt --save-games runs/comm_M/seed0/games.jsonl
+python scripts/analyze_messages.py runs/comm_M/seed*/games.jsonl           # message statistics (RQ4)
 ```
 
 - **Outputs:** each run writes `config.yaml`, `metrics.jsonl` (one JSON object per iteration) and checkpoints to `runs/<name>/seed<k>/`.
@@ -133,7 +142,7 @@ Code is edited on a Mac. Experiments run over SSH on a Windows laptop with an RT
 powershell -ExecutionPolicy Bypass -File scripts\launch_windows.ps1 -Config configs\baseline_silent.yaml -Seeds 0,1,2 -Device cpu -Threads 4
 ```
 
-On the laptop's CPU (Ryzen 9 8945HX), training is faster than on its GPU for these small networks. The launcher can also start any Python job detached with `-Raw` and `-Name`, for example a best-response run.
+With six communication runs in parallel, an iteration took about 15 s with the PPO update on the GPU and about 26 s on the CPU (Ryzen 9 8945HX); GPU utilization stayed near 16%. Runs that share the GPU take turns through a file lock (`training/gpu_lock.py`). On this laptop, however, the GPU faulted under CUDA on 2026-10-29 and 2026-10-30, so runs use `-Device cpu` (overriding `device: cuda` in the configs) until the NVIDIA driver is updated and the GPU passes a new check. The launcher can also start any Python job detached with `-Raw` and `-Name`, for example a best-response run.
 
 ## Design Documents
 
