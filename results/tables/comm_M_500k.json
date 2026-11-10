@@ -1,0 +1,500 @@
+{
+  "note": "M (judgment + rationale) branched from S checkpoint_01460 and trained 980 iterations (501,760 games, total 1,249,280); compared with S checkpoint_02440 (same total games). 2,000 paired games per evaluation, role seed 20261020, sampled actions. Code: commit 972730e (remote), training at e962587.",
+  "conditions": {
+    "S_02440": {
+      "per_seed": [
+        {
+          "good_win": 0.348,
+          "three_successes": 0.5535,
+          "assassin_hit_given_three_successes": 0.3712737127371274,
+          "evil_win_three_fails": 0.4455,
+          "evil_win_five_rejections": 0.001,
+          "mean_proposals": 7.915,
+          "policy_good_vs_rule_evil": 0.797,
+          "policy_evil_vs_rule_good_evil_win": 0.7665
+        },
+        {
+          "good_win": 0.469,
+          "three_successes": 0.6315,
+          "assassin_hit_given_three_successes": 0.2573238321456849,
+          "evil_win_three_fails": 0.3675,
+          "evil_win_five_rejections": 0.001,
+          "mean_proposals": 12.758,
+          "policy_good_vs_rule_evil": 0.8275,
+          "policy_evil_vs_rule_good_evil_win": 0.71
+        },
+        {
+          "good_win": 0.398,
+          "three_successes": 0.553,
+          "assassin_hit_given_three_successes": 0.28028933092224234,
+          "evil_win_three_fails": 0.447,
+          "evil_win_five_rejections": 0.0,
+          "mean_proposals": 6.6145,
+          "policy_good_vs_rule_evil": 0.843,
+          "policy_evil_vs_rule_good_evil_win": 0.8
+        }
+      ],
+      "mean": {
+        "good_win": 0.40499999999999997,
+        "three_successes": 0.5793333333333334,
+        "assassin_hit_given_three_successes": 0.30296229193501817,
+        "evil_win_three_fails": 0.42,
+        "evil_win_five_rejections": 0.0006666666666666666,
+        "mean_proposals": 9.095833333333333,
+        "policy_good_vs_rule_evil": 0.8225000000000001,
+        "policy_evil_vs_rule_good_evil_win": 0.7588333333333334
+      }
+    },
+    "M_00980": {
+      "per_seed": [
+        {
+          "good_win": 0.3655,
+          "three_successes": 0.5175,
+          "assassin_hit_given_three_successes": 0.293719806763285,
+          "evil_win_three_fails": 0.448,
+          "evil_win_five_rejections": 0.0345,
+          "mean_proposals": 11.387,
+          "policy_good_vs_rule_evil": 0.7805,
+          "policy_evil_vs_rule_good_evil_win": 0.786
+        },
+        {
+          "good_win": 0.3955,
+          "three_successes": 0.535,
+          "assassin_hit_given_three_successes": 0.2607476635514019,
+          "evil_win_three_fails": 0.414,
+          "evil_win_five_rejections": 0.051,
+          "mean_proposals": 11.5305,
+          "policy_good_vs_rule_evil": 0.739,
+          "policy_evil_vs_rule_good_evil_win": 0.75
+        },
+        {
+          "good_win": 0.347,
+          "three_successes": 0.4665,
+          "assassin_hit_given_three_successes": 0.25616291532690244,
+          "evil_win_three_fails": 0.5315,
+          "evil_win_five_rejections": 0.002,
+          "mean_proposals": 7.1,
+          "policy_good_vs_rule_evil": 0.738,
+          "policy_evil_vs_rule_good_evil_win": 0.7635000000000001
+        }
+      ],
+      "mean": {
+        "good_win": 0.36933333333333335,
+        "three_successes": 0.5063333333333334,
+        "assassin_hit_given_three_successes": 0.27021012854719645,
+        "evil_win_three_fails": 0.46449999999999997,
+        "evil_win_five_rejections": 0.029166666666666664,
+        "mean_proposals": 10.005833333333333,
+        "policy_good_vs_rule_evil": 0.7525,
+        "policy_evil_vs_rule_good_evil_win": 0.7665000000000001
+      }
+    },
+    "M_00980_silence_all": {
+      "per_seed": [
+        {
+          "good_win": 0.4565,
+          "three_successes": 0.6485,
+          "assassin_hit_given_three_successes": 0.29606784888203547,
+          "evil_win_three_fails": 0.333,
+          "evil_win_five_rejections": 0.0185,
+          "mean_proposals": 10.0735,
+          "policy_good_vs_rule_evil": 0.494,
+          "policy_evil_vs_rule_good_evil_win": 0.8005
+        },
+        {
+          "good_win": 0.6415,
+          "three_successes": 0.904,
+          "assassin_hit_given_three_successes": 0.2903761061946903,
+          "evil_win_three_fails": 0.08,
+          "evil_win_five_rejections": 0.016,
+          "mean_proposals": 11.6825,
+          "policy_good_vs_rule_evil": 0.771,
+          "policy_evil_vs_rule_good_evil_win": 0.757
+        },
+        {
+          "good_win": 0.447,
+          "three_successes": 0.6125,
+          "assassin_hit_given_three_successes": 0.2702040816326531,
+          "evil_win_three_fails": 0.3865,
+          "evil_win_five_rejections": 0.001,
+          "mean_proposals": 7.0375,
+          "policy_good_vs_rule_evil": 0.7575,
+          "policy_evil_vs_rule_good_evil_win": 0.7905
+        }
+      ],
+      "mean": {
+        "good_win": 0.515,
+        "three_successes": 0.7216666666666667,
+        "assassin_hit_given_three_successes": 0.28554934556979295,
+        "evil_win_three_fails": 0.2665,
+        "evil_win_five_rejections": 0.011833333333333335,
+        "mean_proposals": 9.597833333333334,
+        "policy_good_vs_rule_evil": 0.6741666666666667,
+        "policy_evil_vs_rule_good_evil_win": 0.7826666666666666
+      }
+    }
+  },
+  "crossplay": {
+    "M_00980": {
+      "good_win": [
+        [
+          0.3655,
+          0.613,
+          0.574
+        ],
+        [
+          0.597,
+          0.3955,
+          0.6085
+        ],
+        [
+          0.4995,
+          0.5965,
+          0.347
+        ]
+      ],
+      "same_seed_mean": 0.36933333333333335,
+      "cross_seed_mean": 0.5814166666666667
+    },
+    "S_02440": {
+      "good_win": [
+        [
+          0.348,
+          0.4785,
+          0.584
+        ],
+        [
+          0.683,
+          0.469,
+          0.643
+        ],
+        [
+          0.505,
+          0.583,
+          0.398
+        ]
+      ],
+      "same_seed_mean": 0.40499999999999997,
+      "cross_seed_mean": 0.5794166666666666
+    }
+  },
+  "messages_pooled": {
+    "accusation_precision": {
+      "ASSASSIN": {
+        "rate": 0.20621706255250896,
+        "k": 8100,
+        "n": 39279,
+        "ci95": [
+          0.20224469632539788,
+          0.21024688880473685
+        ]
+      },
+      "MERLIN": {
+        "rate": 0.3955526344616059,
+        "k": 14444,
+        "n": 36516,
+        "ci95": [
+          0.3905485854875741,
+          0.40057865751777333
+        ]
+      },
+      "MORGANA": {
+        "rate": 0.20735043617405668,
+        "k": 8034,
+        "n": 38746,
+        "ci95": [
+          0.2033427588796111,
+          0.21141613912837462
+        ]
+      },
+      "PERCIVAL": {
+        "rate": 0.40377294645123085,
+        "k": 14319,
+        "n": 35463,
+        "ci95": [
+          0.398676906586151,
+          0.4088898320320405
+        ]
+      },
+      "SERVANT": {
+        "rate": 0.40062742713415056,
+        "k": 28989,
+        "n": 72359,
+        "ci95": [
+          0.39706229738922766,
+          0.4042031078653941
+        ]
+      },
+      "evil": {
+        "rate": 0.2067798782441525,
+        "k": 16134,
+        "n": 78025,
+        "ci95": [
+          0.20395256943946735,
+          0.20963605930675253
+        ]
+      },
+      "good": {
+        "rate": 0.4001163934653383,
+        "k": 57752,
+        "n": 144338,
+        "ci95": [
+          0.39759157687554975,
+          0.40264652677907337
+        ]
+      }
+    },
+    "endorsement_precision": {
+      "ASSASSIN": {
+        "rate": 0.7999109310577656,
+        "k": 55681,
+        "n": 69609,
+        "ci95": [
+          0.796922367972747,
+          0.8028663928411773
+        ]
+      },
+      "MERLIN": {
+        "rate": 0.6014154883586714,
+        "k": 39599,
+        "n": 65843,
+        "ci95": [
+          0.597669872580815,
+          0.6051492706839091
+        ]
+      },
+      "MORGANA": {
+        "rate": 0.7999337338116024,
+        "k": 55529,
+        "n": 69417,
+        "ci95": [
+          0.7969411436540355,
+          0.8028931285942571
+        ]
+      },
+      "PERCIVAL": {
+        "rate": 0.6020261845386534,
+        "k": 38626,
+        "n": 64160,
+        "ci95": [
+          0.5982326305128693,
+          0.6058075215967265
+        ]
+      },
+      "SERVANT": {
+        "rate": 0.6014969080515273,
+        "k": 77231,
+        "n": 128398,
+        "ci95": [
+          0.5988159164294199,
+          0.6041718263881256
+        ]
+      },
+      "evil": {
+        "rate": 0.7999223166889646,
+        "k": 111210,
+        "n": 139026,
+        "ci95": [
+          0.7978110807754067,
+          0.802016978008773
+        ]
+      },
+      "good": {
+        "rate": 0.6016075789180383,
+        "k": 155456,
+        "n": 258401,
+        "ci95": [
+          0.5997184331456658,
+          0.6034937035730605
+        ]
+      }
+    },
+    "chance_evil": {
+      "good": 0.4,
+      "evil": 0.2
+    },
+    "accusation_precision_by_basis": {
+      "evil/none": {
+        "rate": 0.19891742195367573,
+        "k": 7901,
+        "n": 39720,
+        "ci95": [
+          0.19502083584569574,
+          0.20287224204836174
+        ]
+      },
+      "evil/proposal": {
+        "rate": 0.3414141414141414,
+        "k": 507,
+        "n": 1485,
+        "ci95": [
+          0.31773307710256893,
+          0.36591359155580283
+        ]
+      },
+      "evil/quest": {
+        "rate": 0.24532085561497327,
+        "k": 1468,
+        "n": 5984,
+        "ci95": [
+          0.23458445926824995,
+          0.2563840392972432
+        ]
+      },
+      "evil/role_knowledge": {
+        "rate": 0.19565562073886159,
+        "k": 3702,
+        "n": 18921,
+        "ci95": [
+          0.19006499801927879,
+          0.20136980268203852
+        ]
+      },
+      "evil/vote": {
+        "rate": 0.21451951321863197,
+        "k": 2556,
+        "n": 11915,
+        "ci95": [
+          0.2072414168655436,
+          0.22198163783131553
+        ]
+      },
+      "good/none": {
+        "rate": 0.386327295985115,
+        "k": 26577,
+        "n": 68794,
+        "ci95": [
+          0.3826952016048372,
+          0.3899720850967852
+        ]
+      },
+      "good/proposal": {
+        "rate": 0.5344701583434835,
+        "k": 2194,
+        "n": 4105,
+        "ci95": [
+          0.5191857180802787,
+          0.5496901422108554
+        ]
+      },
+      "good/quest": {
+        "rate": 0.45210941861392456,
+        "k": 5669,
+        "n": 12539,
+        "ci95": [
+          0.4434139007846005,
+          0.4608342721334089
+        ]
+      },
+      "good/role_knowledge": {
+        "rate": 0.3879729984132534,
+        "k": 14426,
+        "n": 37183,
+        "ci95": [
+          0.3830317957951029,
+          0.39293734701050725
+        ]
+      },
+      "good/vote": {
+        "rate": 0.4091725376433209,
+        "k": 8886,
+        "n": 21717,
+        "ci95": [
+          0.40264973265856613,
+          0.4157274705525655
+        ]
+      }
+    },
+    "basis_share": {
+      "good": {
+        "none": 0.504339038434321,
+        "quest": 0.08145722167458329,
+        "vote": 0.17985841947266096,
+        "proposal": 0.033726557398215715,
+        "role_knowledge": 0.20061876302021905
+      },
+      "evil": {
+        "none": 0.5100045611400086,
+        "quest": 0.08855983156032453,
+        "vote": 0.1821415243422053,
+        "proposal": 0.029384798964298714,
+        "role_knowledge": 0.1899092839931629
+      }
+    },
+    "evil_talk": {
+      "names_a_merlin": {
+        "ASSASSIN": {
+          "rate": 0.8466096115865701,
+          "k": 2572,
+          "n": 3038,
+          "ci95": [
+            0.8333579518527714,
+            0.8589857914900771
+          ]
+        },
+        "MORGANA": {
+          "rate": 0.8383805134957208,
+          "k": 2547,
+          "n": 3038,
+          "ci95": [
+            0.8248647577489832,
+            0.8510415747832565
+          ]
+        }
+      },
+      "named_merlin_is_merlin": {
+        "ASSASSIN": {
+          "rate": 0.25194401244167963,
+          "k": 648,
+          "n": 2572,
+          "ci95": [
+            0.23554441735537174,
+            0.26908350697040967
+          ]
+        },
+        "MORGANA": {
+          "rate": 0.2516686297605025,
+          "k": 641,
+          "n": 2547,
+          "ci95": [
+            0.23519715895439466,
+            0.2688880809915118
+          ]
+        }
+      },
+      "assassin_follows": {
+        "assassin_targets_a_named_merlin": {
+          "rate": 0.36345108695652173,
+          "k": 1070,
+          "n": 2944,
+          "ci95": [
+            0.34626440033833866,
+            0.38099367214425334
+          ]
+        }
+      },
+      "hit_when_following": {
+        "hit": {
+          "rate": 0.2691588785046729,
+          "k": 288,
+          "n": 1070,
+          "ci95": [
+            0.24344401238571045,
+            0.2965253834730457
+          ]
+        }
+      },
+      "hit_otherwise": {
+        "hit": {
+          "rate": 0.2700106723585913,
+          "k": 506,
+          "n": 1874,
+          "ci95": [
+            0.2503951257695049,
+            0.2905672216404151
+          ]
+        }
+      }
+    }
+  }
+}
