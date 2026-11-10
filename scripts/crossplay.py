@@ -11,13 +11,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 
-from avalon_rl.agents import PolicyController
-from avalon_rl.evaluation import run_matchup
-from avalon_rl.training.checkpoint import comm_config, load_checkpoint, load_policies
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repository root, so `import src` works
+
+from src.agents import PolicyController
+from src.evaluation import run_matchup
+from src.training.checkpoint import comm_config, load_checkpoint, load_policies
 
 
 def main() -> None:

@@ -1,9 +1,9 @@
 import json
 
-from avalon_rl.agents import RandomController
-from avalon_rl.comm import CommConfig
-from avalon_rl.evaluation import run_matchup
-from avalon_rl.evaluation.messages import message_stats
+from src.agents import RandomController
+from src.comm import CommConfig
+from src.evaluation import run_matchup
+from src.evaluation.messages import message_stats
 
 RECORD = {  # as saved by scripts/evaluate.py: seat keys are strings
     "roles": ["SERVANT", "MERLIN", "PERCIVAL", "SERVANT", "MORGANA", "ASSASSIN"],

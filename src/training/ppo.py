@@ -1,10 +1,4 @@
-"""Clipped PPO update for one team's network, optionally with magnetic mirror descent (MMD).
-
-MMD (Sokota et al., ICLR 2023) adds alpha * KL(pi || magnet) to the loss. With a magnet that is a frozen copy
-of the policy refreshed every K iterations, the regularised fixed points move towards a Nash equilibrium of the
-two-team zero-sum game; with a uniform magnet the update converges to an entropy-regularised (quantal response)
-equilibrium instead.
-"""
+"""Clipped PPO update for one team's network."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,17 +7,8 @@ import numpy as np
 import torch
 from torch import nn
 
-from ..agents.policy import ActorCritic, masked_logits
-from ..env.actions import N_ACTIONS
+from ..agents.policy import ActorCritic
 from .rollout import Batch
-
-
-@dataclass
-class MMDConfig:
-    enabled: bool = False
-    alpha: float = 0.1  # weight of KL(pi || magnet)
-    magnet: str = "moving"  # moving: frozen policy copy refreshed every `magnet_update_every`; uniform: uniform over legal actions
-    magnet_update_every: int = 50  # iterations between magnet refreshes (moving magnet only)
 
 
 @dataclass
@@ -40,20 +25,6 @@ class PPOConfig:
     norm_adv: bool = True
 
 
-def magnet_kl(policy_logp: torch.Tensor, magnet_logits: torch.Tensor | None, mask: torch.Tensor) -> torch.Tensor:
-    """Mean KL(pi || magnet) over legal actions; `policy_logp` are normalised log-probabilities.
-
-    Computed from log-softmax rather than torch's Categorical KL so that a magnet probability that underflows
-    to zero on a legal action gives a large finite penalty instead of inf/NaN. `magnet_logits=None` means the
-    uniform distribution over legal actions.
-    """
-    if magnet_logits is None:
-        magnet_logits = torch.zeros_like(policy_logp)
-    magnet_logp = torch.log_softmax(masked_logits(magnet_logits, mask), dim=-1)
-    p = policy_logp.exp()  # exactly 0 on illegal actions, so they contribute nothing
-    return (p * (policy_logp - magnet_logp)).sum(-1).mean()
-
-
 def ppo_update(
     net: ActorCritic,
     optimizer: torch.optim.Optimizer,
@@ -61,20 +32,11 @@ def ppo_update(
     cfg: PPOConfig,
     device: torch.device,
     rng: np.random.Generator,
-    mmd: MMDConfig | None = None,
-    magnet: ActorCritic | None = None,
 ) -> dict[str, float]:
     """Run `cfg.epochs` passes of minibatch PPO over `batch` and return mean diagnostics.
 
     Returns lie in [-1, 1] (terminal +/-1 reward, gamma = 1), so the value target needs no normalization.
-    With `mmd.enabled`, adds mmd.alpha * KL(pi || magnet); `magnet` is the frozen magnet network for the
-    moving magnet and is ignored for the uniform one.
     """
-    use_mmd = mmd is not None and mmd.enabled
-    if use_mmd and mmd.magnet == "moving" and magnet is None:
-        raise ValueError("moving-magnet MMD needs a magnet network")
-    if use_mmd and net.comm:
-        raise NotImplementedError("MMD is only implemented for the silent game")
     t = lambda x: torch.as_tensor(x, device=device)  # noqa: E731
     obs, masks, actions = t(batch.obs), t(batch.masks), t(batch.actions)
     # The int8 communication features are the bulk of a batch: keep them in host memory and move one
@@ -85,7 +47,7 @@ def ppo_update(
 
     n = len(batch)
     keys = ["policy_loss", "value_loss", "entropy", "approx_kl", "clipfrac"]
-    keys += (["msg_entropy"] if net.comm else []) + (["magnet_kl"] if use_mmd else [])
+    keys += ["msg_entropy"] if net.comm else []
     stats: dict[str, list[float]] = {k: [] for k in keys}
     net.train()
     for _ in range(cfg.epochs):
@@ -93,7 +55,7 @@ def ppo_update(
         for start in range(0, n, cfg.minibatch_size):
             idx = torch.as_tensor(order[start:start + cfg.minibatch_size], device=device)
             mb_comm = comm_obs[idx.cpu()].to(device, non_blocking=True) if comm_obs is not None else None
-            new_logps, entropies, value, logits = net.evaluate(obs[idx], mb_comm, masks[idx], actions[idx])
+            new_logps, entropies, value, _ = net.evaluate(obs[idx], mb_comm, masks[idx], actions[idx])
             log_ratio = new_logps - old_logps[idx]
             ratio = log_ratio.exp()
 
@@ -103,15 +65,6 @@ def ppo_update(
             policy_loss = torch.max(-adv * ratio, -adv * ratio.clamp(1 - cfg.clip_coef, 1 + cfg.clip_coef)).mean()
             value_loss = 0.5 * (value - returns[idx]).pow(2).mean()
             loss = policy_loss - cfg.ent_coef * entropies.mean() + cfg.vf_coef * value_loss
-            if use_mmd:
-                magnet_logits = None
-                if mmd.magnet == "moving":
-                    with torch.no_grad():
-                        magnet_logits = magnet.actor(obs[idx])
-                action_mask = masks[idx][:, :N_ACTIONS]
-                policy_logp = torch.log_softmax(masked_logits(logits[:, :N_ACTIONS], action_mask), dim=-1)
-                kl_magnet = magnet_kl(policy_logp, magnet_logits, action_mask)
-                loss = loss + mmd.alpha * kl_magnet
 
             optimizer.zero_grad()
             loss.backward()
@@ -128,8 +81,6 @@ def ppo_update(
                     stats["msg_entropy"].append(entropies[msg_rows].mean().item())
                 stats["approx_kl"].append(((ratio - 1) - log_ratio).mean().item())
                 stats["clipfrac"].append(((ratio - 1).abs() > cfg.clip_coef).float().mean().item())
-                if use_mmd:
-                    stats["magnet_kl"].append(kl_magnet.item())
 
     out = {k: float(np.mean(v)) if v else float("nan") for k, v in stats.items()}
     var_returns = float(np.var(batch.returns))

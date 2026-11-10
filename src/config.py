@@ -9,7 +9,7 @@ from typing import Any
 import yaml
 
 from .comm.protocol import CommConfig
-from .training.ppo import MMDConfig, PPOConfig
+from .training.ppo import PPOConfig
 
 
 @dataclass
@@ -50,7 +50,6 @@ class TrainConfig:
     model: ModelConfig = field(default_factory=ModelConfig)
     comm: CommConfig = field(default_factory=CommConfig)  # disabled: the silent game
     ppo: PPOConfig = field(default_factory=PPOConfig)
-    mmd: MMDConfig = field(default_factory=MMDConfig)
     opponents: OpponentConfig = field(default_factory=OpponentConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
 

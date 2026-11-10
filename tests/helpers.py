@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from avalon_rl.env import AvalonGame, Role
-from avalon_rl.env import actions as A
+from src.env import AvalonGame, Role
+from src.env import actions as A
 
 # Seats 0-3 good, 4-5 evil.
 ROLES = [Role.MERLIN, Role.PERCIVAL, Role.SERVANT, Role.SERVANT, Role.MORGANA, Role.ASSASSIN]

@@ -5,16 +5,16 @@ import numpy as np
 import pytest
 import torch
 
-from avalon_rl.agents import ActorCritic, PolicyController, RandomController, Request, RuleController
-from avalon_rl.agents.policy import load_silent_weights
-from avalon_rl.comm import protocol as P
-from avalon_rl.config import load_config
-from avalon_rl.env import AvalonGame, Phase, Role, encode
-from avalon_rl.env import actions as A
-from avalon_rl.runner import play
-from avalon_rl.training import TrajectoryRecorder
-from avalon_rl.training.checkpoint import load_checkpoint, load_policies
-from avalon_rl.training.trainer import train
+from src.agents import ActorCritic, PolicyController, RandomController, Request, RuleController
+from src.agents.policy import load_silent_weights
+from src.comm import protocol as P
+from src.config import load_config
+from src.env import AvalonGame, Phase, Role, encode
+from src.env import actions as A
+from src.runner import play
+from src.training import TrajectoryRecorder
+from src.training.checkpoint import load_checkpoint, load_policies
+from src.training.trainer import train
 from helpers import ROLES, make_game, quest, vote
 
 PILOT = Path(__file__).resolve().parents[1] / "configs" / "pilot_silent.yaml"

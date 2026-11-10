@@ -15,12 +15,15 @@ import argparse
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import torch
 import yaml
 
-from avalon_rl.config import load_config
-from avalon_rl.training.trainer import train
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repository root, so `import src` works
+
+from src.config import load_config
+from src.training.trainer import train
 
 
 def parse_set(items: list[str]) -> dict:

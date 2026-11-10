@@ -5,7 +5,6 @@ batch per team, and updates the good and the evil network separately (so the 4-v
 never weight each other's losses). Metrics go to <run_dir>/metrics.jsonl, one JSON object per line.
 A communication configuration normally starts from a silent checkpoint (`init_from`, the branch point):
 the silent weights are embedded so that the network initially plays exactly like S and ignores messages.
-The optional MMD regulariser (ppo.py) belongs to an archived experiment.
 """
 from __future__ import annotations
 
@@ -118,15 +117,6 @@ def train(cfg: TrainConfig) -> Path:
                 nets[t].load_state_dict(ckpt["nets"][t])
         print(f"initialised network weights from {init_from}" + (" (silent branch point)" if branch else ""))
 
-    # MMD moving magnet: a frozen copy of each team's policy, refreshed every magnet_update_every iterations.
-    # It starts as the initial policy (near-uniform for a fresh network) and is restored exactly on resume.
-    magnets = None
-    if cfg.mmd.enabled and cfg.mmd.magnet == "moving":
-        magnets = {t: copy.deepcopy(nets[t]).eval() for t in TEAMS}
-        for t in TEAMS:
-            magnets[t].requires_grad_(False)
-            if cfg.resume and latest.exists() and "magnets" in ckpt:
-                magnets[t].load_state_dict(ckpt["magnets"][t])
     (run_dir / "config.yaml").write_text(yaml.safe_dump(config_to_dict(cfg), sort_keys=False), encoding="utf-8")
     with open(run_dir / "run_info.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps({"iteration": iteration, **run_info(device)}) + "\n")
@@ -163,8 +153,7 @@ def train(cfg: TrainConfig) -> Path:
             entry: dict = {}
             for t in TEAMS:
                 if len(batches[t]):
-                    stats = ppo_update(nets[t], opts[t], batches[t], cfg.ppo, device, rng,
-                                       mmd=cfg.mmd, magnet=magnets[t] if magnets else None)
+                    stats = ppo_update(nets[t], opts[t], batches[t], cfg.ppo, device, rng)
                     entry.update({f"{t}/{k}": v for k, v in stats.items()})
                     entry.update({f"{t}/says_{k}": v for k, v in message_usage(batches[t]).items()})
                 if rollout_nets[t] is not nets[t]:
@@ -187,10 +176,6 @@ def train(cfg: TrainConfig) -> Path:
             if iteration % cfg.opponents.snapshot_every == 0:
                 for t in TEAMS:
                     pool.add(t, rollout_nets[t])
-            if magnets and iteration % cfg.mmd.magnet_update_every == 0:
-                for t in TEAMS:
-                    magnets[t].load_state_dict(nets[t].state_dict())
-                entry["magnet_updated"] = True
             if iteration % cfg.eval.every == 0 or iteration == n_iters:
                 good_vs_rule, _ = run_matchup(frozen_views["good"], rule, cfg.eval.games, eval_seed, comm=cfg.comm)
                 rule_vs_evil, _ = run_matchup(rule, frozen_views["evil"], cfg.eval.games, eval_seed, comm=cfg.comm)
@@ -202,8 +187,6 @@ def train(cfg: TrainConfig) -> Path:
                     optimizers={t: opts[t].state_dict() for t in TEAMS},
                     numpy_rng=rng.bit_generator.state, torch_rng=torch.get_rng_state(),
                 )
-                if magnets:
-                    state["magnets"] = {t: magnets[t].state_dict() for t in TEAMS}
                 save_checkpoint(run_dir / f"checkpoint_{iteration:05d}.pt", **state)
                 save_checkpoint(latest, **state)
             log.write(json.dumps(entry) + "\n")

@@ -10,11 +10,14 @@ scripts/exploitability.py.
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import torch
 
-from avalon_rl.training.best_response import BestResponseConfig, train_best_response
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repository root, so `import src` works
+
+from src.training.best_response import BestResponseConfig, train_best_response
 
 
 def main() -> None:

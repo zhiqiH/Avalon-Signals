@@ -1,6 +1,6 @@
 import numpy as np
 
-from avalon_rl.env import LAYOUT, OBS_DIM, Role, encode
+from src.env import LAYOUT, OBS_DIM, Role, encode
 from helpers import ROLES, make_game, play_quest, propose, vote
 
 

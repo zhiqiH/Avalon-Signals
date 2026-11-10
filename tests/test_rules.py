@@ -3,9 +3,9 @@ from collections import Counter
 import numpy as np
 import pytest
 
-from avalon_rl.env import AvalonGame, Phase, Role, WinReason
-from avalon_rl.env import actions as A
-from avalon_rl.env.rules import QUEST_SIZES
+from src.env import AvalonGame, Phase, Role, WinReason
+from src.env import actions as A
+from src.env.rules import QUEST_SIZES
 from helpers import good_team, make_game, play_quest, propose, quest, vote
 
 

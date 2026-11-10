@@ -11,16 +11,20 @@ from __future__ import annotations
 
 import argparse
 import copy
+import sys
 import time
+from pathlib import Path
 
 import numpy as np
 import torch
 
-from avalon_rl.agents import ActorCritic, PolicyController, RandomController
-from avalon_rl.comm import CommConfig
-from avalon_rl.env.game import AvalonGame
-from avalon_rl.runner import play
-from avalon_rl.training import PPOConfig, TrajectoryRecorder, ppo_update
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repository root, so `import src` works
+
+from src.agents import ActorCritic, PolicyController, RandomController
+from src.comm import CommConfig
+from src.env.game import AvalonGame
+from src.runner import play
+from src.training import PPOConfig, TrajectoryRecorder, ppo_update
 
 
 def main() -> None:
