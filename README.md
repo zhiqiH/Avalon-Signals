@@ -4,7 +4,7 @@ Graduate term project for **CS 7329 Reinforcement Learning** at Southern Methodi
 
 What do agents gain from talking in a hidden-role game? This project trains multi-agent reinforcement learning agents to play six-player *The Resistance: Avalon*, first **in silence** — using only public actions such as team proposals, votes and mission results — and then with a **structured five-slot message channel**. Comparing the two isolates what explicit communication adds to win rates, to strategic behavior, and to the information carried by public actions.
 
-**Status:** research design complete. The environment, scripted players and evaluation are implemented and tested. The silent baseline S (self-play PPO) is fixed: 3 seeds × 1.5M games, results in [results/tables/baseline_silent_final.json](results/tables/baseline_silent_final.json). The five-slot communication module (protocol v2: one discussion per quest, eight-value judgments, coherent rationales, action intents) is implemented and tested. Configuration M is training: 3 seeds, 501,760 games each from the S branch point, on the remote laptop's CPU. F and the M+k configurations come next.
+**Status:** research design complete. The environment, scripted players and evaluation are implemented and tested. The silent baseline S (self-play PPO) is fixed: 3 seeds × 1.5M games, results in [results/tables/baseline_silent_final.json](results/tables/baseline_silent_final.json). The five-slot communication module (protocol v2: one discussion per quest, eight-value judgments, coherent rationales, action intents) is implemented and tested. Configuration M has trained 501,760 games per seed (3 seeds) from the S branch point; results in [results/tables/comm_M_500k.json](results/tables/comm_M_500k.json). F and the M+k configurations come next.
 
 ## Research Questions
 
@@ -90,7 +90,7 @@ Each slot can be switched on or off independently, and every slot can say nothin
 │   ├── runner.py            Plays many games in lockstep with batched decisions
 │   └── config.py            YAML-backed training configuration
 ├── configs/                 baseline_silent.yaml (S, final), comm_M / comm_M_claim / comm_M_team / comm_M_intent / comm_F, pilot_silent.yaml, baseline_eq.yaml (archived)
-├── scripts/                 train.py, evaluate.py, crossplay.py, analyze_messages.py, best_response.py, exploitability.py, plot_training.py, benchmark.py, launch_windows.ps1
+├── scripts/                 train.py, evaluate.py, crossplay.py, analyze_messages.py, best_response.py, exploitability.py, plot_training.py, benchmark.py
 ├── tests/                   Rules, information leakage, observation encoding, GAE, message protocol, message statistics, a short training run
 ├── notebooks/               Analysis notebooks
 ├── results/                 Curated figures and tables
@@ -111,13 +111,14 @@ python scripts/train.py --config configs/pilot_silent.yaml # 2,048-game pilot
 python scripts/train.py --config configs/baseline_silent.yaml --seed 0
 python scripts/evaluate.py --checkpoint runs/baseline_silent/seed0/latest.pt --games 1000
 python scripts/crossplay.py runs/baseline_silent/seed{0,1,2}/latest.pt     # 3 x 3 cross-seed matrix
-python scripts/train.py --config configs/comm_M.yaml --seed 0              # branches from S checkpoint_01460
+python scripts/train.py --config configs/comm_M.yaml --seed 0 1 2 --device cuda   # three seeds in parallel; branches from S checkpoint_01460
 python scripts/evaluate.py --checkpoint runs/comm_M/seed0/latest.pt --save-games runs/comm_M/seed0/games.jsonl
 python scripts/analyze_messages.py runs/comm_M/seed*/games.jsonl           # message statistics (RQ4)
 ```
 
 - **Outputs:** each run writes `config.yaml`, `metrics.jsonl` (one JSON object per iteration) and checkpoints to `runs/<name>/seed<k>/`.
 - **Changing settings:** override any config key with `--set`, for example `--set ppo.lr=1e-4`.
+- **Several seeds:** `--seed 0 1 2` trains the seeds in parallel processes; each writes its console output to `runs/<name>/seed<k>/train.log`. `--threads` sets the torch CPU threads per run (default with several seeds: an even share of the cores).
 - **Continuing a run:** `--resume` continues an interrupted run.
 - **Starting from saved weights:** `--init-from` loads network weights only, for warm starts and the branch training of the communication configurations.
 
@@ -130,19 +131,11 @@ python scripts/analyze_messages.py runs/comm_M/seed*/games.jsonl           # mes
 | rule vs random | ≈ 0.65 |
 | random vs rule | ≈ 0.01 |
 
-## Running on a Remote GPU Machine
+## Compute
 
-Code is edited on a Mac. Experiments run over SSH on a Windows laptop with an RTX 5070 Ti; code reaches the laptop through `git pull`. The full setup and daily loop are in [docs/remote_windows.md](docs/remote_windows.md).
+The networks are small and rollouts run on the CPU, so throughput comes mostly from running several seeds in parallel; the GPU only speeds up the PPO update. On an Apple M5 CPU, self-play collects about 500 games/s, so a 100,000-game run takes minutes rather than hours. Run `scripts/benchmark.py` on a new machine before fixing the budget.
 
-**Where the time goes.** The networks are small and rollouts run on the CPU, so throughput comes mostly from running several seeds in parallel. The GPU only speeds up the PPO update. On an Apple M5 CPU, self-play collects about 500 games/s, so a 100,000-game run takes minutes rather than hours. Run `scripts/benchmark.py` on the remote machine before fixing the budget.
-
-**Starting runs.** Windows OpenSSH kills a session's processes when the connection drops. Start runs with the launcher, which keeps them alive after a disconnect:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\launch_windows.ps1 -Config configs\baseline_silent.yaml -Seeds 0,1,2 -Device cpu -Threads 4
-```
-
-With six communication runs in parallel, an iteration took about 15 s with the PPO update on the GPU and about 26 s on the CPU (Ryzen 9 8945HX); GPU utilization stayed near 16%. With NVIDIA driver 581.42 the GPU faulted when several runs updated on it at once (2026-10-29 and 2026-10-30). After updating to driver 621.01, six parallel runs updating on the GPU together had no faults (2026-11-09), so the communication configs use `device: cuda` again; a run that crashes continues from its latest checkpoint with `--resume`. The launcher can also start any Python job detached with `-Raw` and `-Name`, for example a best-response run.
+On a laptop with a Ryzen 9 8945HX and an RTX 5070 Ti, six communication runs in parallel took about 15 s per iteration with the PPO update on the GPU and about 26 s with it on the CPU; GPU utilization stayed near 16%. With NVIDIA driver 581.42 that GPU faulted when several runs updated on it at once (2026-10-29 and 2026-10-30). After updating to driver 621.01, six parallel runs updating on the GPU together had no faults (2026-11-09), so the communication configs use `device: cuda`; a run that crashes continues from its latest checkpoint with `--resume`.
 
 ## Design Documents
 
