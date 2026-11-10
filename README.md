@@ -84,7 +84,7 @@ Each slot can be switched on or off independently, and every slot can say nothin
 ├── src/avalon_rl/
 │   ├── env/                 Rules, game state machine, action space, information-state encoding
 │   ├── agents/              Actor–critic policy, random and rule-based players
-│   ├── training/            Trajectory recording and GAE, PPO update, opponent pool, trainer, GPU lock, best response (diagnostic)
+│   ├── training/            Trajectory recording and GAE, PPO update, opponent pool, trainer, best response (diagnostic)
 │   ├── evaluation/          Paired frozen evaluation, win-rate decomposition, message statistics
 │   ├── comm/                Five-slot message protocol: slots, consistency masks, observation features
 │   ├── runner.py            Plays many games in lockstep with batched decisions
@@ -142,7 +142,7 @@ Code is edited on a Mac. Experiments run over SSH on a Windows laptop with an RT
 powershell -ExecutionPolicy Bypass -File scripts\launch_windows.ps1 -Config configs\baseline_silent.yaml -Seeds 0,1,2 -Device cpu -Threads 4
 ```
 
-With six communication runs in parallel, an iteration took about 15 s with the PPO update on the GPU and about 26 s on the CPU (Ryzen 9 8945HX); GPU utilization stayed near 16%. Runs that share the GPU take turns through a file lock (`training/gpu_lock.py`). On this laptop, however, the GPU faulted under CUDA on 2026-10-29 and 2026-10-30, so runs use `-Device cpu` (overriding `device: cuda` in the configs) until the NVIDIA driver is updated and the GPU passes a new check. The launcher can also start any Python job detached with `-Raw` and `-Name`, for example a best-response run.
+With six communication runs in parallel, an iteration took about 15 s with the PPO update on the GPU and about 26 s on the CPU (Ryzen 9 8945HX); GPU utilization stayed near 16%. With NVIDIA driver 581.42 the GPU faulted when several runs updated on it at once (2026-10-29 and 2026-10-30). After updating to driver 621.01, six parallel runs updating on the GPU together had no faults (2026-11-09), so the communication configs use `device: cuda` again; a run that crashes continues from its latest checkpoint with `--resume`. The launcher can also start any Python job detached with `-Raw` and `-Name`, for example a best-response run.
 
 ## Design Documents
 
