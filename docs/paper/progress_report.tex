@@ -1,0 +1,116 @@
+% Progress report: abstract, introduction and literature review in full; later sections summarized.
+\documentclass[10pt,letterpaper]{article}
+
+\usepackage[letterpaper,textwidth=5.5in,textheight=9in,top=1in,footskip=30pt]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{newtxtext,newtxmath}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{enumitem}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\definecolor{linkblue}{HTML}{1C5CAB}
+\hypersetup{colorlinks=true,linkcolor=linkblue,citecolor=linkblue,urlcolor=linkblue,
+  pdftitle={How Communication Shapes Learned Strategies in Six-Player Avalon}}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5.5pt}
+\setlist{leftmargin=1.4em,itemsep=2pt,topsep=2pt,parsep=0pt}
+
+\makeatletter
+\renewcommand{\section}{\@startsection{section}{1}{0pt}{-2.0ex plus -0.5ex minus -.2ex}{1.2ex plus .2ex}{\large\bfseries\raggedright}}
+\renewcommand{\subsection}{\@startsection{subsection}{2}{0pt}{-1.6ex plus -0.5ex minus -.2ex}{0.8ex plus .2ex}{\normalsize\bfseries\raggedright}}
+\makeatother
+
+\begin{document}
+
+\begin{center}
+\rule{\linewidth}{4pt}\\[10pt]
+{\LARGE\bfseries How Communication Shapes Learned Strategies\\[3pt] in Six-Player \emph{Avalon}\par}
+\vspace{8pt}
+\rule{\linewidth}{1pt}
+\end{center}
+\vspace{4pt}
+
+\begin{center}{\large\bfseries Abstract}\end{center}
+\vspace{-4pt}
+\begin{quote}
+Hidden-role games such as \emph{The Resistance: Avalon} ask players to cooperate with teammates they cannot identify while an informed minority works against them. Human players exchange much of the decisive information through discussion, yet a strong learned \emph{Avalon} agent has played without saying anything, and game theory shows that whether public talk helps the uninformed majority is not settled in advance. We ask what explicit communication adds to agents trained by multi-agent reinforcement learning, and which kinds of information account for the effect. We study six-player \emph{Avalon} with Merlin, Percival, Morgana and the Assassin, train both teams by self-play with proximal policy optimization, and compare a silent control with a public, structured message protocol whose five slots (role claim, alignment judgment, rationale, team suggestion and action intent) can be added one at a time under the same rules, learner and training budget. The primary measure is the change in the good team's win rate relative to silence, evaluated against opponents from the same and from other training runs and decomposed into quest and assassination outcomes. Training-time slot ablations, test-time silencing and receiver-side interventions separate messages that carry information from messages that listeners actually use. In the completed silent baseline, the good team wins 39.9\% of same-seed games but 53.9\% against evil policies from other seeds, a sign of strong opponent-specific co-adaptation that the communication comparisons must control for.
+\end{quote}
+\vspace{2pt}
+\textbf{Keywords:} multi-agent reinforcement learning; emergent communication; hidden-role games; self-play; proximal policy optimization.
+
+% ---------------------------------------------------------------- 1. introduction
+\section{Introduction}
+\label{sec:intro}
+
+Most successes of reinforcement learning in games come from settings where the sides are known. Hidden-role games remove that certainty. In \emph{The Resistance: Avalon}, players are secretly dealt to a good majority and an evil minority. The evil players know each other, most good players know nothing, and teams are proposed and voted on in public, with quest results revealing only how many players sabotaged. The good team must succeed on three quests while keeping its best-informed member, Merlin, hidden from the Assassin. Cooperation is therefore possible only to the extent that players can infer, and signal, their allegiances.
+
+Human players do much of this through talk, but whether talk is needed for strong play, and whom it helps, is not obvious. Game theory shows that the equilibrium of a hidden-role game depends on the communication available, and that a public channel the adversary also hears may not help the majority at all~\citep{carminati2026hidden}. DeepRole outperformed humans at five-player \emph{Avalon} without sending or reading a single message~\citep{serrino2019deeprole}, while human games with discussion give the good team about one win in three~\citep{nakamura2017percival}. Agents built on large language models talk and show social behaviors such as persuasion and camouflage~\citep{lan2024avalon,light2025strategist}, but their use of language is entangled with pretrained knowledge and search.
+
+We therefore ask, under controlled conditions, \emph{what explicit communication adds to agents that learn to play a hidden-role game, which team benefits, and which kinds of information are responsible}. Reinforcement learning fits the question: play is partially observable and sequential, the reward arrives only at the end of the game, and good strategies are unknown in advance. Messages can be learned as discrete actions~\citep{foerster2016learning} with proximal policy optimization (PPO)~\citep{schulman2017ppo,yu2022mappo}, although cheap talk between agents with conflicting interests is often ignored~\citep{cao2018emergent}, more channel capacity does not reliably help~\citep{brandizzi2021rlupus}, and higher reward does not show that anyone listens~\citep{lowe2019pitfalls}.
+
+We study six-player \emph{Avalon} (Merlin, Percival and two Servants against Morgana and the Assassin) with both teams trained by self-play PPO. The silent control S communicates only through proposals, votes and quest results. The treatment adds one public discussion round per quest with five switchable message slots: role claim, alignment judgment, rationale, team suggestion and action intent. Messages may be false but must be internally coherent, and they never bind actions. Configurations add slots step by step under the same rules, network and training budget. Four questions guide the study:
+\begin{itemize}
+\item \textbf{RQ1 (game balance):} which team benefits when communication is added?
+\item \textbf{RQ2 (strategic behavior):} how do team building, voting, sabotage and concealment change?
+\item \textbf{RQ3 (implicit signaling):} do public actions carry role information, and do messages complement or crowd it out?
+\item \textbf{RQ4 (message components):} which of the five message types account for the effect?
+\end{itemize}
+The contribution is a controlled, component-wise test of communication in a hidden-role game in which both teams learn. Its conclusions concern this learning system and protocol, not an equilibrium of \emph{Avalon}.
+
+% ---------------------------------------------------------------- 2. literature review
+\section{Literature Review}
+\label{sec:lit}
+
+Work relevant to this question comes from equilibrium computation, game-playing agents, emergent communication and multi-agent policy optimization. We organize it around the problems the study has to solve.
+
+\subsection{Hidden-role games: hard to solve, yet playable in silence}
+
+\citet{carminati2026hidden} give the first formal treatment of hidden-role games and show that the right solution concept depends on the channel: none, public or private. With private communication, a coordinated adversary and an adversarial minority, the hidden-role value can be computed in polynomial time. With no or only public communication, computing it is NP-hard or harder. Their matching-pennies example shows that public talk need not raise the majority's value at all, because the hidden adversary hears every message. They solve several five- and six-player \emph{Avalon} variants exactly, but not the six-player variant with Percival and Morgana. Two consequences follow for this study: the setting calls for an empirical rather than an exact approach, and the \emph{sign} of public communication's effect must be measured rather than assumed.
+
+Empirically, DeepRole~\citep{serrino2019deeprole} combines counterfactual regret minimization, deductive reasoning over role assignments and value networks trained by self-play. In five-player \emph{Avalon} it outperformed human players in 2,189 mixed games, both as teammate and as opponent, although it never sent a message and ignored the humans' chat. Public actions evidently carry enough information for strong play, so silence is a meaningful control and communication must be measured against a competent silent policy. Human data complete the picture: in 61 games with discussion, good won 34\%, and \citet{nakamura2017percival} argues that $1/3$ is the fair rate for six players. None of these works isolates the effect of communication under a fixed learning procedure.
+
+\subsection{Language agents: communication as a capability, not a variable}
+
+\citet{lan2024avalon} build language-model agents for the same six-player role set and catalog the social behaviors they display, among them persuasion, camouflage, teamwork and sharing. STRATEGIST~\citep{light2025strategist} improves textual strategies by self-play and tree search, and splits dialogue into belief analysis, an \emph{action intent} and text generation. These systems treat communication as a capability of the agent, so its effect cannot be separated from pretrained knowledge, prompting and search. A controlled study varies only the channel. The two strands still connect: STRATEGIST's intent layer resembles a structured slot message without its surface form, and behaviors such as camouflage and sharing become measurable as false or truthful slot values.
+
+\subsection{Learning to communicate: grounding, incentives and bandwidth}
+
+\citet{foerster2016learning} learn discrete messages either as reinforcement-learned actions (RIAL) or by back-propagating through the channel (DIAL). DIAL assumes that speaker and listener share an objective, which fails in \emph{Avalon}, where every message reaches opponents and teammates are unknown, so the RIAL principle applies. \citet{cao2018emergent} show that self-interested negotiators use a channel grounded in the game's actions but ignore ungrounded cheap talk, while prosocial agents use both. A public \emph{Avalon} channel mixes the two cases, since teammates share the speaker's reward, opponents do not, and listeners cannot tell which applies. This argues for partial grounding (rationales that cite only real past events) while keeping messages non-binding so that deception remains possible. In nine-player Werewolf, RLupus~\citep{brandizzi2021rlupus} trains villagers with PPO against scripted werewolves. Communication raises their win rate from 0.044 to 0.45, but a larger alphabet yields only 0.19, so bandwidth is not monotonically useful. This motivates adding message types one at a time, and its fixed opponents leave open what happens when both teams adapt.
+
+\subsection{Measuring communication: signaling is not listening}
+
+\citet{lowe2019pitfalls} separate \emph{positive signaling} (messages correlate with the speaker's information) from \emph{positive listening} (messages change the listener's behavior). They show that agents can signal without anyone listening, and propose an intervention-based measure of listening. In a two-team game there is a further confound, since adding a channel also changes how the teams co-adapt during training. Evidence must therefore be graded as \emph{informativeness} (messages predict hidden roles), \emph{use} (substituting a message changes the receiver's action) and \emph{benefit} (win rates change), with each claim reported only at the level its evidence reaches.
+
+\subsection{Policy optimization in two-team self-play}
+
+PPO~\citep{schulman2017ppo} constrains each update with a clipped surrogate objective, and \citet{yu2022mappo} show that carefully configured PPO with parameter sharing is competitive on cooperative multi-agent benchmarks, including the partially observable Hanabi. These results support one shared actor--critic per team, but they come from fully cooperative tasks. In a two-team game each side learns against an adapting opponent, self-play carries no convergence guarantee, and equilibrium computation with public talk is intractable~\citep{carminati2026hidden}. Results should therefore be read as properties of a learning system and checked against opponents from independent training runs.
+
+Taken together, this literature implies that the control must be a trained silent policy and that the direction of the effect must be measured. It also implies that channels are used only when incentives and grounding allow, that reward gains do not prove listening, and that self-play outcomes need not transfer across runs. No prior work isolates the contribution of explicit communication, and of its components, in a hidden-role game in which both teams learn.
+
+% ---------------------------------------------------------------- 3-5. summarized sections
+\section{Methodology}
+\label{sec:method}
+
+We model six-player \emph{Avalon} as a partially observable stochastic game and train one parameter-shared actor--critic per team with PPO and generalized advantage estimation, using a seat-relative information-state encoding, masked action heads and a mixture of current, past and scripted opponents. Communication is a public five-slot protocol (role claim, alignment judgment, rationale, team suggestion and action intent) spoken once per quest before the first proposal; messages are sampled from RIAL-style policy heads, may be false but must be internally coherent, and never bind actions. The configuration ladder S $\rightarrow$ M $\rightarrow$ \{M+Claim, M+Team, M+Intent\} $\rightarrow$ F uses three seeds and an equal budget of 1.5 million training games per configuration, branches each communication run from its seed's silent checkpoint at half the budget, and adds test-time slot silencing and a from-scratch control.
+
+\section{Results}
+\label{sec:results}
+
+The results will report the change in the good team's win rate relative to S on same-seed and cross-seed games, decomposed into quest and assassination outcomes, followed by behavioral, message-truthfulness and listener-influence analyses for RQ2--RQ4. In the completed silent baseline (three seeds, 1.5 million games each), the learned good team wins 84.7\% against scripted evil and 39.9\% in same-seed self-play, but 53.9\% against evil policies from other seeds, which makes cross-seed evaluation essential. The communication configurations are being trained and evaluated.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+The paper will conclude with what structured communication changes in learned \emph{Avalon} play, which team benefits, and which message components are responsible. It will also discuss the limitations of the evidence (three seeds, a finite protocol rather than natural language, the warm-start bias and the absence of equilibrium guarantees) and directions such as rendering slot messages in natural language.
+
+{\small
+\setlength{\bibsep}{3pt plus 1pt}
+\bibliographystyle{plainnat}
+\bibliography{references}
+}
+
+\end{document}

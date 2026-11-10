@@ -150,6 +150,7 @@ With six communication runs in parallel, an iteration took about 15 s with the P
 |---|---|
 | Research Design ([PDF](docs/Avalon_Research_Design.pdf), [DOCX](docs/Avalon_Research_Design.docx)) | Research questions, game setup, message protocol, experimental design, metrics and evidence standards, scope of conclusions |
 | Implementation Spec ([DOCX](docs/Avalon_Implementation_Spec.docx)) | Must-have vs. optional components, environment, message encoding, networks, training pipeline, diagnostics, evaluation, logging, compute, optional natural-language extension |
+| Progress Report ([PDF](docs/paper/progress_report.pdf), [LaTeX](docs/paper/)) | Abstract, introduction and literature review; methodology, results and conclusion in brief |
 
 To rebuild the documents:
 
