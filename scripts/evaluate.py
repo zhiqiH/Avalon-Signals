@@ -1,6 +1,6 @@
 """Evaluate a trained checkpoint with frozen policies and paired role assignments.
 
-    python scripts/evaluate.py --checkpoint runs/baseline_silent/seed0/latest.pt --games 1000
+    python scripts/evaluate.py --checkpoint baseline/seed0/checkpoint_19532.pt --games 1000
     python scripts/evaluate.py --checkpoint runs/comm_F/seed0/latest.pt --silence all        # F -> S
     python scripts/evaluate.py --checkpoint runs/comm_F/seed0/latest.pt --silence rationale  # F -> F without (3)
 

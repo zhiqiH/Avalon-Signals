@@ -39,7 +39,7 @@ def parse_set(items: list[str]) -> dict:
 def overrides_of(args: argparse.Namespace, seed: int | None) -> dict:
     return {
         "seed": seed, "device": args.device, "total_games": args.total_games, "name": args.name,
-        "out_dir": args.out_dir, "init_from": args.init_from, "resume": args.resume or None,
+        "out_dir": args.out_dir, "init_from": args.init_from, "resume": args.resume or None, "workers": args.workers,
         **parse_set(args.set),
     }
 
@@ -49,7 +49,7 @@ def train_seeds_in_parallel(args: argparse.Namespace) -> int:
     threads = args.threads or max(1, (os.cpu_count() or 2) // (2 * len(args.seed)))  # share the physical cores
     shared = ["--config", args.config, "--threads", str(threads)]
     for flag, value in (("--device", args.device), ("--total-games", args.total_games), ("--name", args.name),
-                        ("--out-dir", args.out_dir), ("--init-from", args.init_from)):
+                        ("--out-dir", args.out_dir), ("--init-from", args.init_from), ("--workers", args.workers)):
         if value is not None:
             shared += [flag, str(value)]
     shared += ["--resume"] if args.resume else []
@@ -88,6 +88,7 @@ def main() -> None:
     parser.add_argument("--out-dir")
     parser.add_argument("--init-from", help="checkpoint whose network weights initialise training")
     parser.add_argument("--resume", action="store_true", help="continue from the run's latest.pt")
+    parser.add_argument("--workers", type=int, help="rollout worker processes per run (0: none)")
     parser.add_argument("--set", action="append", default=[], metavar="KEY=VALUE", help="override any config key")
     parser.add_argument("--threads", type=int,
                         help="torch CPU threads per run (default with several seeds: an even share of the cores)")

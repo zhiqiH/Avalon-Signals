@@ -11,6 +11,8 @@ __pycache__/
 runs/
 logs/
 *.pt
+# ...except the frozen silent baseline, which every communication run starts from
+!baseline/seed*/checkpoint_19532.pt
 
 # OS and editor files
 .DS_Store

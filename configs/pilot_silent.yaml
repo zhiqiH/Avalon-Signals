@@ -10,6 +10,7 @@ out_dir: runs
 
 model:
   hidden_sizes: [256, 256]
+  deduction: true       # deduction fields of the observation (README, Observation)
 
 ppo:
   lr: 3.0e-4

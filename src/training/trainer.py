@@ -14,6 +14,7 @@ import math
 import platform
 import subprocess
 import time
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 
@@ -28,10 +29,11 @@ from ..env.game import AvalonGame
 from ..evaluation.evaluate import run_matchup
 from ..evaluation.metrics import game_outcome, summarize
 from ..runner import play
-from .checkpoint import comm_config, load_checkpoint, save_checkpoint
+from .checkpoint import comm_config, load_checkpoint, load_policies, save_checkpoint
 from .opponent_pool import OpponentPool
 from .ppo import ppo_update
 from .rollout import TEAMS, TrajectoryRecorder, message_usage
+from .workers import LEARNER, RULE, RolloutWorkers, Spec, resolve
 
 MODES = ("self", "pool", "rule")
 
@@ -53,7 +55,7 @@ def run_info(device: torch.device) -> dict:
         "device": str(device),
         "gpu": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
     }
-    repo = Path(__file__).resolve().parents[3]
+    repo = Path(__file__).resolve().parents[2]
     git = lambda *args: subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True).stdout.strip()  # noqa: E731
     try:
         info["git_commit"] = git("rev-parse", "HEAD")
@@ -63,23 +65,46 @@ def run_info(device: torch.device) -> dict:
     return info
 
 
-def sample_matchups(n_games, learners, pool, rule, probs, rng):
-    """Choose who controls each team in each training game."""
-    good, evil, modes = [], [], []
+def sample_matchups(n_games: int, pool_sizes: dict[str, int], probs, rng) -> tuple[list[tuple[Spec, Spec]], list[str]]:
+    """Choose who controls each team in each training game: (good spec, evil spec) per game, and its mode.
+
+    A spec is LEARNER, RULE or an index into that team's opponent pool (see `workers.resolve`).
+    """
+    specs, modes = [], []
     for _ in range(n_games):
         mode = MODES[rng.choice(3, p=probs)]
-        ctrls = dict(learners)
+        spec = {"good": LEARNER, "evil": LEARNER}
         if mode != "self":
             frozen_team = TEAMS[int(rng.integers(2))]
-            opponent = rule if mode == "rule" else pool.sample(frozen_team, rng)
-            if opponent is None:  # pool still empty early in training
+            if mode == "rule":
+                spec[frozen_team] = RULE
+            elif pool_sizes[frozen_team]:
+                spec[frozen_team] = int(rng.integers(pool_sizes[frozen_team]))
+            else:  # pool still empty early in training
                 mode = "self"
-            else:
-                ctrls[frozen_team] = opponent
-        good.append(ctrls["good"])
-        evil.append(ctrls["evil"])
+        specs.append((spec["good"], spec["evil"]))
         modes.append(mode)
-    return good, evil, modes
+    return specs, modes
+
+
+def refill_pool(pool: OpponentPool, run_dir: Path, iteration: int, every: int, size: int) -> list[dict]:
+    """On a resume, refill the opponent pool with the saved checkpoints among the last `size` snapshots.
+
+    Snapshots are taken more often than checkpoints are saved, so only the snapshots that have a checkpoint
+    file come back (half of them with the default settings); the pool fills up again as training continues.
+    Returns the restored networks, oldest first.
+    """
+    restored = []
+    for it in range(iteration - (iteration % every), max(0, iteration - size * every), -every):
+        path = run_dir / f"checkpoint_{it:05d}.pt"
+        if it > 0 and path.exists():
+            restored.append((it, load_policies(path)))
+    for it, nets in reversed(restored):
+        for t in TEAMS:
+            pool.add(t, nets[t])
+    its = [it for it, _ in restored]
+    print(f"opponent pool refilled with {len(its)} snapshots" + (f" (iterations {min(its)}-{max(its)})" if its else ""))
+    return [nets for _, nets in reversed(restored)]
 
 
 def _rate(summary: dict, key: str = "good_win") -> float:
@@ -93,7 +118,8 @@ def train(cfg: TrainConfig) -> Path:
     rng = np.random.default_rng(cfg.seed)
     torch.manual_seed(cfg.seed)
 
-    nets = {t: ActorCritic(hidden_sizes=cfg.model.hidden_sizes, comm=cfg.comm.enabled).to(device) for t in TEAMS}
+    nets = {t: ActorCritic(hidden_sizes=cfg.model.hidden_sizes, comm=cfg.comm.enabled,
+                           deduction=cfg.model.deduction).to(device) for t in TEAMS}
     opts = {t: torch.optim.Adam(nets[t].parameters(), lr=cfg.ppo.lr, eps=1e-5) for t in TEAMS}
     iteration = games_seen = 0
     latest = run_dir / "latest.pt"
@@ -105,7 +131,7 @@ def train(cfg: TrainConfig) -> Path:
         iteration, games_seen = ckpt["iteration"], ckpt["games_seen"]
         rng.bit_generator.state = ckpt["numpy_rng"]
         torch.set_rng_state(ckpt["torch_rng"].cpu())
-        print(f"resumed from {latest} at iteration {iteration} (opponent pool restarts empty)")
+        print(f"resumed from {latest} at iteration {iteration}")
     elif cfg.init_from:
         init_from = cfg.init_from.format(seed=cfg.seed)
         ckpt = load_checkpoint(init_from, device)
@@ -127,6 +153,21 @@ def train(cfg: TrainConfig) -> Path:
     frozen_views = {t: PolicyController(rollout_nets[t], learn=False) for t in TEAMS}
     rule = RuleController(cfg.opponents.rule_fail_prob, cfg.opponents.rule_merlin_knowledge_prob)
     pool = OpponentPool(cfg.opponents.pool_size)
+    restored = refill_pool(pool, run_dir, iteration, cfg.opponents.snapshot_every, cfg.opponents.pool_size) if iteration else []
+    with RolloutWorkers(cfg.workers, cfg) if cfg.workers else nullcontext() as workers:
+        if workers:
+            print(f"{len(workers)} rollout worker processes")
+            for nets_then in restored:
+                workers.pool_add(nets_then)
+            workers.set_weights(nets)
+        _train_loop(cfg, run_dir, device, rng, nets, opts, rollout_nets, learners, frozen_views, rule, pool, workers,
+                    iteration, games_seen)
+    return run_dir
+
+
+def _train_loop(cfg, run_dir, device, rng, nets, opts, rollout_nets, learners, frozen_views, rule, pool, workers,
+                iteration, games_seen) -> None:
+    latest = run_dir / "latest.pt"
     probs = [cfg.opponents.p_self, cfg.opponents.p_pool, cfg.opponents.p_rule]
     n_iters = math.ceil(cfg.total_games / cfg.games_per_iter)
     eval_seed = 10_000 + cfg.seed  # fixed, so evaluations across iterations are paired
@@ -143,11 +184,18 @@ def train(cfg: TrainConfig) -> Path:
 
         while iteration < n_iters:
             t0 = time.perf_counter()
-            games = [AvalonGame(rng, comm=cfg.comm) for _ in range(cfg.games_per_iter)]
-            good_ctrls, evil_ctrls, modes = sample_matchups(len(games), learners, pool, rule, probs, rng)
-            recorder = TrajectoryRecorder()
-            play(games, good_ctrls, evil_ctrls, rng, on_decision=recorder)
-            batches = recorder.build(games, cfg.ppo.gamma, cfg.ppo.gae_lambda)
+            pool_sizes = {t: len(pool.snapshots[t]) for t in TEAMS}
+            if workers:
+                specs, modes = sample_matchups(cfg.games_per_iter, pool_sizes, probs, rng)
+                batches, outcomes = workers.play(specs, rng)
+            else:
+                games = [AvalonGame(rng, comm=cfg.comm) for _ in range(cfg.games_per_iter)]
+                specs, modes = sample_matchups(len(games), pool_sizes, probs, rng)
+                recorder = TrajectoryRecorder()
+                play(games, [resolve(g, "good", learners, pool, rule) for g, _ in specs],
+                     [resolve(e, "evil", learners, pool, rule) for _, e in specs], rng, on_decision=recorder)
+                batches = recorder.build(games, cfg.ppo.gamma, cfg.ppo.gae_lambda)
+                outcomes = [game_outcome(g) for g in games]
             t1 = time.perf_counter()
 
             entry: dict = {}
@@ -158,11 +206,13 @@ def train(cfg: TrainConfig) -> Path:
                     entry.update({f"{t}/says_{k}": v for k, v in message_usage(batches[t]).items()})
                 if rollout_nets[t] is not nets[t]:
                     rollout_nets[t].load_state_dict(nets[t].state_dict())
+            if workers:
+                workers.set_weights(nets)
             t2 = time.perf_counter()
             iteration += 1
-            games_seen += len(games)
+            games_seen += len(specs)
 
-            self_games = [game_outcome(g) for g, m in zip(games, modes) if m == "self"]
+            self_games = [o for o, m in zip(outcomes, modes) if m == "self"]
             entry = {
                 "iteration": iteration,
                 "games": games_seen,
@@ -176,9 +226,15 @@ def train(cfg: TrainConfig) -> Path:
             if iteration % cfg.opponents.snapshot_every == 0:
                 for t in TEAMS:
                     pool.add(t, rollout_nets[t])
+                if workers:
+                    workers.pool_add_current()
             if iteration % cfg.eval.every == 0 or iteration == n_iters:
-                good_vs_rule, _ = run_matchup(frozen_views["good"], rule, cfg.eval.games, eval_seed, comm=cfg.comm)
-                rule_vs_evil, _ = run_matchup(rule, frozen_views["evil"], cfg.eval.games, eval_seed, comm=cfg.comm)
+                if workers:
+                    good_vs_rule = workers.evaluate(LEARNER, RULE, cfg.eval.games, eval_seed)
+                    rule_vs_evil = workers.evaluate(RULE, LEARNER, cfg.eval.games, eval_seed)
+                else:
+                    good_vs_rule, _ = run_matchup(frozen_views["good"], rule, cfg.eval.games, eval_seed, comm=cfg.comm)
+                    rule_vs_evil, _ = run_matchup(rule, frozen_views["evil"], cfg.eval.games, eval_seed, comm=cfg.comm)
                 entry["eval"] = {"policy_good_vs_rule_evil": good_vs_rule, "rule_good_vs_policy_evil": rule_vs_evil}
             if iteration % cfg.checkpoint_every == 0 or iteration == n_iters:
                 state = dict(
@@ -199,4 +255,3 @@ def train(cfg: TrainConfig) -> Path:
                 line += (f" | good-vs-rule {_rate(entry['eval']['policy_good_vs_rule_evil']):.3f}"
                          f" evil-vs-rule {1 - _rate(entry['eval']['rule_good_vs_policy_evil']):.3f}")
             print(line, flush=True)
-    return run_dir

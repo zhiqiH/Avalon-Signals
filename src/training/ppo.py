@@ -48,7 +48,10 @@ def ppo_update(
     n = len(batch)
     keys = ["policy_loss", "value_loss", "entropy", "approx_kl", "clipfrac"]
     keys += ["msg_entropy"] if net.comm else []
-    stats: dict[str, list[float]] = {k: [] for k in keys}
+    # Diagnostics stay on the device until the end: a .item() per minibatch would stall the GPU queue.
+    # Each entry is a (sum, count) pair per minibatch, so a key can skip minibatches without a host sync.
+    stats: dict[str, list[tuple[torch.Tensor, torch.Tensor]]] = {k: [] for k in keys}
+    one = torch.ones((), device=device)
     net.train()
     for _ in range(cfg.epochs):
         order = rng.permutation(n)
@@ -72,17 +75,21 @@ def ppo_update(
             optimizer.step()
 
             with torch.no_grad():
-                stats["policy_loss"].append(policy_loss.item())
-                stats["value_loss"].append(value_loss.item())
-                msg_rows = is_msg[idx]
-                if (~msg_rows).any():  # entropy of game-action decisions, comparable with the silent baseline
-                    stats["entropy"].append(entropies[~msg_rows].mean().item())
-                if net.comm and msg_rows.any():
-                    stats["msg_entropy"].append(entropies[msg_rows].mean().item())
-                stats["approx_kl"].append(((ratio - 1) - log_ratio).mean().item())
-                stats["clipfrac"].append(((ratio - 1).abs() > cfg.clip_coef).float().mean().item())
+                stats["policy_loss"].append((policy_loss.detach(), one))
+                stats["value_loss"].append((value_loss.detach(), one))
+                game_rows = (~is_msg[idx]).float()  # entropy of game-action decisions, comparable with S
+                stats["entropy"].append(((entropies * game_rows).sum(), game_rows.sum()))
+                if net.comm:
+                    msg_rows = is_msg[idx].float()
+                    stats["msg_entropy"].append(((entropies * msg_rows).sum(), msg_rows.sum()))
+                stats["approx_kl"].append((((ratio - 1) - log_ratio).mean(), one))
+                stats["clipfrac"].append((((ratio - 1).abs() > cfg.clip_coef).float().mean(), one))
 
-    out = {k: float(np.mean(v)) if v else float("nan") for k, v in stats.items()}
+    out = {}
+    for k, pairs in stats.items():  # mean over minibatches of each minibatch's mean, as before
+        sums, counts = (torch.stack(x).double().cpu().numpy() for x in zip(*pairs))
+        means = sums[counts > 0] / counts[counts > 0]
+        out[k] = float(means.mean()) if len(means) else float("nan")
     var_returns = float(np.var(batch.returns))
     out["explained_variance"] = float("nan") if var_returns == 0 else 1 - float(np.var(batch.returns - batch.values)) / var_returns
     out["samples"] = n

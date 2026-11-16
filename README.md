@@ -117,7 +117,7 @@ The core layer is S, M and F; the extension layer is the three M+k configuration
 - **Two complementary ablations.** Adding a slot measures its increment; removing it at test time measures dependence. If the two disagree, the slots interact. Test-time removal can include out-of-distribution effects and is not the same as relearning to play without that slot.
 - **No S → F:** a silent policy has never seen messages, so opening the channel at test time is meaningless.
 - **Identifying the rationale:** ② and ③ are always switched on together, so ③ can only be measured by switching it off at test time in M and F. That measures dependence, not the effect after training adapts.
-- **Controls:** all configurations share the network, output heads, hyperparameters and training budget; masks alone change which slots are available. The training seed is the unit of replication, with 3 seeds per configuration. Communication configurations branch from the same seed's silent checkpoint so that comparisons are paired. Since a branched policy may keep its silent habits, an optional from-scratch F run checks whether warm-starting suppresses communication.
+- **Controls:** all configurations share the network, output heads, hyperparameters and training budget; masks alone change which slots are available. The training seed is the unit of replication, with 3 seeds per configuration. Communication configurations start from the same seed's frozen silent baseline so that comparisons are paired, and a silent control adapted the same way with the same budget separates the effect of messages from the effect of further training. Since a branched policy may keep its silent habits, an optional from-scratch F run checks whether warm-starting suppresses communication.
 
 ## 6 Training
 
@@ -129,13 +129,16 @@ The core layer is S, M and F; the extension layer is the three M+k configuration
 - Votes and mission cards are collected first and revealed together, so execution order leaks nothing.
 - Each player's observation holds only the public history, its own role and its role's private knowledge. Percival's two candidates are an unordered set. Seats, roles and the first leader are random. The full state is kept apart from policy inputs and used only by the referee and for analysis.
 
-**Observation.** The silent observation is a 615-dimensional information-state vector:
+**Observation.** The silent observation is a 669-dimensional information-state vector:
 - the player's role and private knowledge;
 - the phase, mission, attempt, leader and current team;
 - the complete proposal and vote history (votes as +1 approve, −1 reject, 0 not cast; at most 5 missions × 5 proposals);
-- mission results and the player's own mission cards.
+- mission results and the player's own mission cards;
+- deduction fields (54): which of the 15 possible evil pairs are still consistent with the mission results (a mission with *f* Fail cards had at least *f* evil members), first from public information and then also from the player's private knowledge, plus the seats that are therefore certainly evil or certainly good in each view.
 
-Every seat-indexed field is rotated into the acting player's frame, and a named index (`LAYOUT`) locates each field. Because the history is bounded, this vector is a complete information state, so plain MLPs suffice: no recurrence, no BPTT, and RQ3 interventions can edit the vector directly.
+Every seat-indexed field is rotated into the acting player's frame, and a named index (`LAYOUT`) locates each field. Because the history is bounded, this vector is a complete information state, so plain MLPs suffice: no recurrence, no BPTT, and RQ3 interventions can edit the vector directly (the deduction fields must then be recomputed from the edited mission history).
+
+**Why the deduction fields.** They add no information; they do the logical bookkeeping that DeepRole [1] does explicitly. Without them PPO does not learn this bookkeeping: states with a logically certain evil player are rare (about 5% of good votes) and a single vote decides the outcome in only about 16% of them, so the terminal reward gives little signal for them. Since every communication configuration starts from S, a baseline without this bookkeeping would let communication look useful merely for passing on deductions.
 
 Communication configurations add a 4,729-dimensional message block: 13 global features plus 36 fixed message slots of 131 features each (one per mission and speaker, plus the evil talk). The actor and the critic each compress every message slot with a shared linear encoder (131 → 32, tanh), and the result is concatenated with the silent vector.
 
@@ -162,8 +165,12 @@ Communication configurations add a 4,729-dimensional message block: 13 global fe
 
 **Training pipeline.**
 1. **Silent baseline.** Train S until its win rates against rule players are stable (gate 1: the mean over the last ~100k games differs from the previous ~100k by less than 0.02). No communication configuration is trained until S passes.
-2. **Branching.** The budget is B = 1,500,160 games (2,930 iterations). Each seed's S checkpoint at half the budget (`checkpoint_01460.pt`, 747,520 games) is the branch point. M, F and the M+k configurations add the message heads there and train the remaining 752,640 games (1,470 iterations). New message inputs start at zero weight, so a branched network plays exactly like S at first; message heads start uniform.
-3. **Optional from-scratch control:** at least one F seed trained from scratch with the same budget.
+2. **Frozen baseline.** S is frozen at 10,000,384 games (19,532 iterations) per seed: `baseline/seed{0,1,2}/checkpoint_19532.pt`, tracked in git with the run's configuration, metrics and run info. Its win rates against rule players are flat over the last several million games, and its evaluation is in `results/tables/baseline_silent_final.json`. Remaining weaknesses were measured by replacing one behavior at test time:
+   - masking the good players' residual deduction errors moves the good win rate by less than 1 point;
+   - the learned Assassin hits Merlin 0.32 of the time in same-seed games, against 0.36 for a vote-reading heuristic, so the heuristic would cost good about 3 points. Across seeds the heuristic falls to 0.18, below chance, because Merlin learned decoy votes against vote readers;
+   - an evil team that never approves a clean team at good's match point would cost good 2–4 points.
+3. **Branching.** M, F and the M+k configurations add the message heads to each seed's frozen baseline. The adaptation method (LoRA) and the branch budget are fixed before the communication runs, and a silent control is trained the same way. New message inputs start at zero weight, so a branched network plays exactly like S at first; message heads start uniform.
+4. **Optional from-scratch control:** at least one F seed trained from scratch with the same total number of games.
 
 **Communication diagnostics.**
 - **Toy check:** as in RLupus [5], fix evil to the rule player and train only good players to talk in M. If Merlin's judgments still do not raise good's win rate, look for an implementation error first.
@@ -183,7 +190,7 @@ Communication configurations add a 4,729-dimensional message block: 13 global fe
 
 **RQ1 Game balance.**
 - **Primary metric:** ΔGood = P(good wins | F → F) − P(good wins | S → S). Positive means communication favors good in this setting; adjacent differences on the ladder are reported too. 50% is only a symmetry reference, not a target for an asymmetric game.
-- **Cross-seed evaluation.** Self-play learns conventions that only work inside one training population. In S, good wins 0.39 against its own seed's evil but 0.54 against other seeds' evil. Every configuration therefore reports a 3 × 3 matrix of good *i* against evil *j* (1,000 paired games per cell), and ΔGood is given on same-seed games (the diagonal) and cross-seed games (off the diagonal). Seeds are crossed only in evaluation, never in training.
+- **Cross-seed evaluation.** Self-play learns conventions that only work inside one training population. In S, good wins 0.46 against its own seed's evil but 0.65 against other seeds' evil. Every configuration therefore reports a 3 × 3 matrix of good *i* against evil *j* (1,000 paired games per cell), and ΔGood is given on same-seed games (the diagonal) and cross-seed games (off the diagonal). Seeds are crossed only in evaluation, never in training.
 - **Decomposition:** P(good wins) = P(three successes) × [1 − P(Assassin hits Merlin | three successes)]. Evil wins by three failures and by five rejections are reported separately. Assassination accuracy is computed only over games that reach the assassination; a random guess among the four good players hits 25%. Mission success is reported by mission number, and missions that never happen are not counted as failures.
 
 **RQ2 Strategic behavior.**
@@ -196,7 +203,7 @@ Communication configurations add a 4,729-dimensional message block: 13 global fe
 | Percival's dilemma | Percival's team and vote preferences between the two candidates; how Morgana shifts them | Support is not the same as being taken for Merlin |
 | Assassination | Accuracy given three successes; sensitivity to vote and proposal history | Games that reach the assassination are a selected sample |
 
-**RQ3 Implicit signaling.** S is the main object: without an explicit channel, public actions are the only way to pass information. S already shows conventions that work only within one seed; for example, an Assassin that targets a seat or the last leader is near chance against other seeds' Merlins. Evidence comes in three levels, and conclusions go only as far as the level reached:
+**RQ3 Implicit signaling.** S is the main object: without an explicit channel, public actions are the only way to pass information. S already shows conventions that work only within one seed; for example, its Assassin hits Merlin 0.32 of the time against its own seed but 0.26 against other seeds' Merlins (chance is 0.25). Evidence comes in three levels, and conclusions go only as far as the level reached:
 1. **Informativeness:** adding individual vote histories improves the prediction of hidden roles. This shows only that behavior carries information.
 2. **Receiver use:** hiding who cast past votes (counts, outcomes and legal actions kept) changes receivers' actions and payoffs, against a placebo mask of the same size and an auxiliary condition trained with masked inputs. This shows the cue is used.
 3. **Strategic signaling** (exploratory): among vote combinations with the same outcome, informed players choose the ones that influence teammates and adapt to their partners.
@@ -222,7 +229,7 @@ The first two levels are the minimum. Once the explicit channel exists, the info
 ## 8 Scope of Conclusions
 
 - Conclusions hold only for the defined slots, value ranges, roles and learned policies. Structured messages are not free discussion; claims about natural language need a separate natural-language experiment.
-- Finite-budget self-play is not a Nash equilibrium, and this project measures a learning system without trying to solve for one. Teammates who cannot share private information make the equilibrium harder to find than in two-player zero-sum games [11]. A control trained with PPO plus magnetic mirror descent reached approximate exploitability [12] of 0.60 at 1.5M games, against 0.65 for plain self-play, which is no meaningful move toward equilibrium. Win rates inside one training population describe only that population, hence the cross-seed evaluation.
+- Finite-budget self-play is not a Nash equilibrium, and this project measures a learning system without trying to solve for one. Teammates who cannot share private information make the equilibrium harder to find than in two-player zero-sum games [11]. Win rates inside one training population describe only that population, hence the cross-seed evaluation.
 - If communication is not learned, that is reported as a learning failure, not as "talk has no value". Small win-rate differences are reported with intervals and the effect sizes they rule out. If RQ3 reaches only correlation, it stays exploratory.
 
 ## 9 Optional Extension: Natural Language
@@ -242,6 +249,7 @@ The first two levels are the minimum. Once the explicit channel exists, the info
 │   ├── evaluation/          Paired frozen evaluation, win-rate decomposition, message statistics
 │   ├── runner.py            Plays many games in lockstep with batched decisions
 │   └── config.py            YAML-backed training configuration
+├── baseline/                Frozen silent baseline S: seed0-2 checkpoints (10,000,384 games) with config, metrics and run info
 ├── configs/                 baseline_silent.yaml (S), comm_M, comm_M_claim, comm_M_team, comm_M_intent, comm_F, pilot_silent.yaml
 ├── scripts/                 train.py, evaluate.py, crossplay.py, analyze_messages.py, best_response.py, exploitability.py, plot_training.py, benchmark.py
 ├── tests/                   Rules, information leakage, observation encoding, GAE, message protocol, message statistics, short training runs
@@ -262,14 +270,14 @@ pytest                                                     # rules, leakage, pro
 python scripts/benchmark.py --games 2048                   # simulation and update throughput on this machine
 python scripts/train.py --config configs/pilot_silent.yaml # 2,048-game pilot
 python scripts/train.py --config configs/baseline_silent.yaml --seed 0 1 2
-python scripts/train.py --config configs/comm_F.yaml --seed 0 1 2 --device cuda   # branches from S checkpoint_01460
+python scripts/train.py --config configs/comm_F.yaml --seed 0 1 2 --device cuda   # starts from the frozen baseline
 python scripts/evaluate.py --checkpoint runs/comm_F/seed0/latest.pt --games 1000
 python scripts/evaluate.py --checkpoint runs/comm_F/seed0/latest.pt --silence all        # F -> S
 python scripts/evaluate.py --checkpoint runs/comm_F/seed0/latest.pt --silence rationale  # F -> F without (3)
 python scripts/crossplay.py runs/comm_F/seed{0,1,2}/latest.pt                            # 3 x 3 cross-seed matrix
 python scripts/evaluate.py --checkpoint runs/comm_F/seed0/latest.pt --save-games runs/comm_F/seed0/games.jsonl
 python scripts/analyze_messages.py runs/comm_F/seed*/games.jsonl                        # message statistics (RQ4)
-python scripts/best_response.py --checkpoint runs/baseline_silent/seed0/latest.pt --side evil   # optional diagnostic
+python scripts/best_response.py --checkpoint baseline/seed0/checkpoint_19532.pt --side evil   # optional diagnostic
 ```
 
 - **Outputs:** each run writes `config.yaml`, `metrics.jsonl` (one JSON object per iteration), `run_info.jsonl` and checkpoints (every 20 iterations) to `runs/<name>/seed<k>/`.
@@ -289,12 +297,9 @@ python scripts/best_response.py --checkpoint runs/baseline_silent/seed0/latest.p
 
 ## Compute
 
-The networks are small and rollouts run on the CPU, so throughput comes mostly from running several seeds in parallel; the GPU only speeds up the PPO update.
-- **Silent configurations:** on an Apple M5 CPU, self-play collects about 500 games/s. S trains with the update on the CPU.
-- **Communication configurations:** these add up to 32 speaking decisions per game and a 4,729-dimensional message block to every observation, so their PPO update runs on the GPU. On a laptop with a Ryzen 9 8945HX and an RTX 5070 Ti:
-  - six runs in parallel (M and F × 3 seeds) took about 15–16 s per iteration including evaluation and checkpoints, so a 1,470-iteration branch run takes about 6.5 h;
-  - with the update on the CPU instead, an iteration took about 26 s;
-  - rollouts are the bottleneck: GPU utilization stays near 16% and peak memory near 4 GB.
+The networks are small, so rollouts run on the CPU in worker processes (`workers` in the config; `src/training/workers.py`) and the PPO update runs on the GPU when there is one. Measured on a laptop with a Ryzen 9 8945HX (16 cores) and an RTX 5070 Ti, including evaluation and checkpoints:
+- **Silent baseline:** three S seeds with 8 workers each take about 2 s per iteration, so the 19,532-iteration baseline takes about 11 h.
+- **Communication configurations:** these add up to 32 speaking decisions per game and a 4,729-dimensional message block to every observation. Six runs in parallel (M and F × 3 seeds) with 4 workers each take about 9.7 s per iteration.
 - **GPU stability:** with NVIDIA driver 581.42 that GPU faulted when several runs updated on it at once. With driver 621.01 six parallel runs had no faults. A run that crashes continues from its latest checkpoint with `--resume`.
 
 ## Key References

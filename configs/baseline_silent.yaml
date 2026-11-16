@@ -1,18 +1,20 @@
-# Final silent baseline S (fixed 2026-10-28): no communication; self-play PPO for both teams; seeds 0, 1, 2.
-# Every communication configuration uses these settings unchanged. Trained to 1,500,160 games (2,930 iterations)
-# per seed; the branch point for the communication configurations is checkpoint_01460.pt (747,520 games).
-# The first ~100k games of each seed ran the PPO update on CUDA, the rest on CPU (CPU is faster for these
-# small networks and avoided a CUDA hang). Final evaluation: results/tables/baseline_silent_final.json.
+# Silent baseline S: no communication; self-play PPO for both teams; seeds 0, 1, 2.
+# Frozen at 10,000,384 games (19,532 iterations) per seed: baseline/seed{0,1,2}/checkpoint_19532.pt, with the
+# run's config, metrics and per-segment run info next to it; results/tables/baseline_silent_final.json holds its
+# evaluation. Every communication configuration uses these settings unchanged. With 8 rollout workers per seed
+# and the update on the GPU an iteration takes about 2 s (3 seeds at once on a 16-core CPU + laptop RTX 5070 Ti).
 name: baseline_silent
 seed: 0
-device: cpu             # rollouts always run on CPU; the PPO update uses this device
-total_games: 1500000    # training budget B
+device: auto            # the PPO update uses this device (the GPU if there is one); rollouts run on CPU
+total_games: 10000000   # training budget (rounded up to whole iterations: 10,000,384 games)
 games_per_iter: 512
 checkpoint_every: 20
+workers: 8              # rollout worker processes per seed; 3 seeds x 8 fill a 16-core / 32-thread CPU
 out_dir: runs
 
 model:
   hidden_sizes: [256, 256]
+  deduction: true       # deduction fields of the observation (README, Observation)
 
 ppo:
   lr: 3.0e-4

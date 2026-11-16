@@ -15,6 +15,7 @@ from .training.ppo import PPOConfig
 @dataclass
 class ModelConfig:
     hidden_sizes: list[int] = field(default_factory=lambda: [256, 256])
+    deduction: bool = True  # read the deduction fields of the observation (checkpoints before 2026-11-12: false)
 
 
 @dataclass
@@ -44,6 +45,7 @@ class TrainConfig:
     total_games: int = 100_000  # training budget B
     games_per_iter: int = 512
     checkpoint_every: int = 20
+    workers: int = 0  # rollout worker processes per run (0: play in the training process; src/training/workers.py)
     out_dir: str = "runs"
     init_from: str | None = None  # load network weights only (warm start / branch point); "{seed}" is filled in
     resume: bool = False  # continue from <out_dir>/<name>/seed<seed>/latest.pt if it exists

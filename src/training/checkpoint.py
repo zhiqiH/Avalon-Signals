@@ -29,7 +29,9 @@ def comm_config(config: dict[str, Any]) -> CommConfig:
 
 
 def build_net(config: dict[str, Any]) -> ActorCritic:
-    return ActorCritic(hidden_sizes=config["model"]["hidden_sizes"], comm=comm_config(config).enabled)
+    model = config["model"]
+    return ActorCritic(hidden_sizes=model["hidden_sizes"], comm=comm_config(config).enabled,
+                       deduction=model.get("deduction", False))  # absent: trained before the deduction fields
 
 
 def load_policies(path: str | Path, device: str | torch.device = "cpu") -> dict[str, ActorCritic]:

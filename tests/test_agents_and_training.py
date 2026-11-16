@@ -12,7 +12,9 @@ from src.evaluation import run_matchup
 from src.runner import play
 from src.training import TrajectoryRecorder, gae_terminal
 from src.training.checkpoint import load_policies
-from src.training.trainer import train
+from src.training.opponent_pool import OpponentPool
+from src.training.trainer import refill_pool, train
+from src.training.workers import LEARNER, RolloutWorkers, cpu_state
 
 PILOT = Path(__file__).resolve().parents[1] / "configs" / "pilot_silent.yaml"
 
@@ -97,6 +99,54 @@ def test_short_training_run_checkpoints_and_resumes(tmp_path):
     assert lines[-1]["iteration"] == 3 and lines[-1]["games"] == 96
 
 
+def test_resume_refills_the_pool_from_saved_snapshots(tmp_path):
+    overrides = {
+        "out_dir": str(tmp_path), "device": "cpu", "total_games": 128, "games_per_iter": 32,
+        "checkpoint_every": 2, "eval.every": 4, "eval.games": 32, "ppo.minibatch_size": 256,
+    }
+    run_dir = train(load_config(PILOT, overrides))  # checkpoints at iterations 2 and 4
+    pool = OpponentPool(capacity=3)
+    refill_pool(pool, run_dir, iteration=4, every=1, size=3)  # snapshots 2, 3, 4; no file for 3
+    assert len(pool.snapshots["good"]) == len(pool.snapshots["evil"]) == 2
+    newest = load_policies(run_dir / "checkpoint_00004.pt")["good"]
+    restored = pool.snapshots["good"][-1].net
+    assert all(torch.equal(a, b) for a, b in zip(newest.state_dict().values(), restored.state_dict().values()))
+
+
+def test_training_with_rollout_workers_is_reproducible_and_resumes(tmp_path):
+    overrides = {
+        "device": "cpu", "total_games": 96, "games_per_iter": 32, "checkpoint_every": 1, "eval.every": 3,
+        "eval.games": 32, "opponents.snapshot_every": 1, "ppo.minibatch_size": 256, "workers": 2,
+    }
+    runs = []
+    for name in ("a", "b"):
+        run_dir = train(load_config(PILOT, {**overrides, "out_dir": str(tmp_path / name)}))
+        runs.append([json.loads(line) for line in (run_dir / "metrics.jsonl").read_text(encoding="utf-8").splitlines()])
+    timing = ("collect_s", "update_s")
+    assert [{k: v for k, v in e.items() if k not in timing} for e in runs[0]] == \
+        [{k: v for k, v in e.items() if k not in timing} for e in runs[1]]
+    last = runs[0][-1]
+    assert last["iteration"] == 3 and last["games"] == 96 and "eval" in last
+    assert last["eval"]["policy_good_vs_rule_evil"]["games"] == 32
+    assert sum(last["modes"].values()) == 32 and last["modes"]["pool"] > 0  # pool snapshots reached the workers
+
+    run_dir = train(load_config(PILOT, {**overrides, "out_dir": str(tmp_path / "a"), "total_games": 128, "resume": True}))
+    lines = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [e["iteration"] for e in lines[1:]] == [1, 2, 3, 4]
+
+
+def test_worker_messages_carry_no_torch_tensors():
+    # torch tensors would be sent as shared-memory file descriptors and exhaust open files on a pool refill
+    state = cpu_state(ActorCritic())
+    assert state and all(isinstance(v, np.ndarray) for v in state.values())
+
+
+def test_a_failing_rollout_worker_raises_in_the_training_process():
+    with RolloutWorkers(1, load_config(PILOT)) as workers:
+        with pytest.raises(RuntimeError, match="IndexError"):
+            workers.play([(0, LEARNER)], np.random.default_rng(0))  # pool index 0 of an empty pool
+
+
 def test_fresh_start_overwrites_metrics_of_earlier_attempt(tmp_path):
     overrides = {
         "out_dir": str(tmp_path), "device": "cpu", "total_games": 64, "games_per_iter": 32,
@@ -107,3 +157,18 @@ def test_fresh_start_overwrites_metrics_of_earlier_attempt(tmp_path):
     lines = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [entry["iteration"] for entry in lines] == [0, 1, 2]
 
+
+
+def test_networks_without_deduction_ignore_the_deduction_fields():
+    from src.env import OBS_DIM
+    from src.env.observation import OBS_DIM_NO_DEDUCTION
+    from src.training.checkpoint import build_net
+
+    torch.manual_seed(0)
+    old = build_net({"model": {"hidden_sizes": [16]}})  # config written before the deduction fields existed
+    assert old.obs_dim == OBS_DIM_NO_DEDUCTION and old.actor[0].in_features == OBS_DIM_NO_DEDUCTION
+    obs = torch.randn(4, OBS_DIM)
+    noisy = obs.clone()
+    noisy[:, OBS_DIM_NO_DEDUCTION:] = torch.randn(4, OBS_DIM - OBS_DIM_NO_DEDUCTION)
+    assert torch.equal(old.logits(obs), old.logits(noisy)) and torch.equal(old.value(obs), old.value(noisy))
+    assert build_net({"model": {"hidden_sizes": [16], "deduction": True}}).actor[0].in_features == OBS_DIM

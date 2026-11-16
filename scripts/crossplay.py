@@ -1,6 +1,6 @@
 """Cross-seed play: every seed's good policy against every seed's evil policy.
 
-    python scripts/crossplay.py runs/baseline_silent/seed0/latest.pt runs/baseline_silent/seed1/latest.pt runs/baseline_silent/seed2/latest.pt
+    python scripts/crossplay.py baseline/seed0/checkpoint_19532.pt baseline/seed1/checkpoint_19532.pt baseline/seed2/checkpoint_19532.pt
 
 Cell (i, j) is the good win rate of good_i vs evil_j over the same paired role assignments. The diagonal is
 ordinary self-play within one training run; the off-diagonal pairs policies that never trained together.

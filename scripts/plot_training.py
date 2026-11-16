@@ -1,6 +1,6 @@
-"""Plot learning curves for one run group (e.g. runs/baseline_silent/seed*/metrics.jsonl).
+"""Plot learning curves for one run group (seed*/metrics.jsonl, or metrics.jsonl.xz as in baseline/).
 
-    python scripts/plot_training.py --runs runs/baseline_silent --out results/figures/baseline_silent_learning_curves.png
+    python scripts/plot_training.py --runs baseline --out results/figures/baseline_silent_learning_curves.png
 
 Three panels share the x axis (training games):
   1. learned good team vs the fixed rule-based evil team (good win rate)
@@ -9,12 +9,13 @@ Three panels share the x axis (training games):
 Panels 1-2 measure progress against an opponent that never changes, so a flat curve there
 means the policy stopped getting stronger. Panel 3 has no fixed target: both teams keep
 adapting to each other, so it shows balance, not progress. Curves are moving averages over
-~50k games; dotted verticals mark resumed runs.
+~50k games.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import lzma
 from pathlib import Path
 
 import matplotlib
@@ -36,9 +37,14 @@ def moving_average(x: np.ndarray, y: np.ndarray, window: int) -> tuple[np.ndarra
     return x[window - 1:], np.convolve(y, kernel, mode="valid")
 
 
+def metrics_file(seed_dir: Path) -> Path | None:
+    return next((f for f in (seed_dir / "metrics.jsonl", seed_dir / "metrics.jsonl.xz") if f.exists()), None)
+
+
 def load(seed_dir: Path) -> dict:
-    rows = [json.loads(line) for line in (seed_dir / "metrics.jsonl").read_text(encoding="utf-8").splitlines()]
-    per_iter = rows[0]["games"] if "games" in rows[0] else rows[1]["games"] // rows[1]["iteration"]
+    path = metrics_file(seed_dir)
+    text = lzma.open(path, "rt", encoding="utf-8").read() if path.suffix == ".xz" else path.read_text(encoding="utf-8")
+    rows = [json.loads(line) for line in text.splitlines()]
     evals = np.array([
         (r["games"],
          r["eval"]["policy_good_vs_rule_evil"]["good_win"]["rate"],
@@ -46,9 +52,7 @@ def load(seed_dir: Path) -> dict:
         for r in rows if "eval" in r
     ])
     selfplay = np.array([(r["games"], r["selfplay"]["good_win"]["rate"]) for r in rows if r.get("selfplay")])
-    starts = [json.loads(line)["iteration"] for line in (seed_dir / "run_info.jsonl").read_text(encoding="utf-8").splitlines()]
-    resumes = [it * per_iter for it in starts if it > 0]
-    return {"evals": evals, "selfplay": selfplay, "resumes": resumes}
+    return {"evals": evals, "selfplay": selfplay}
 
 
 def style_axis(ax, title: str, ylabel: str) -> None:
@@ -70,11 +74,11 @@ def reference_line(ax, y: float, label: str, x_max: float) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--runs", default="runs/baseline_silent")
+    parser.add_argument("--runs", default="baseline")
     parser.add_argument("--out", default="results/figures/baseline_silent_learning_curves.png")
     args = parser.parse_args()
 
-    seeds = sorted(p for p in Path(args.runs).glob("seed*") if (p / "metrics.jsonl").exists() and p.name[4:].isdigit())
+    seeds = sorted(p for p in Path(args.runs).glob("seed*") if metrics_file(p) and p.name[4:].isdigit())
     data = {int(p.name[4:]): load(p) for p in seeds}
     x_max = max(d["evals"][-1, 0] for d in data.values()) / 1e6
 
@@ -84,13 +88,6 @@ def main() -> None:
     style_axis(axes[2], "Self-play: learned good vs learned evil (no fixed target)", "good win rate")
     reference_line(axes[0], RULE_VS_RULE_GOOD, "rule good vs rule evil (0.13)", x_max)
     reference_line(axes[1], 1 - RULE_VS_RULE_GOOD, "rule evil vs rule good (0.87)", x_max)
-
-    resumes = sorted({g for d in data.values() for g in d["resumes"]})
-    for ax in axes:
-        for g in resumes:
-            ax.axvline(g / 1e6, color=GRID, linewidth=1, linestyle=":", zorder=0)
-    if resumes:
-        axes[0].text(resumes[0] / 1e6, 0.97, " resumed", fontsize=7.5, color=TEXT2, va="top")
 
     ends: dict[int, list[tuple[int, float, float]]] = {i: [] for i in range(len(axes))}
     for seed, d in data.items():

@@ -39,7 +39,7 @@ from ..comm.protocol import (
     stack_contexts,
 )
 from ..env.actions import N_ACTIONS
-from ..env.observation import OBS_DIM, encode
+from ..env.observation import OBS_DIM, OBS_DIM_NO_DEDUCTION, encode_batch
 from .base import ActResult, Request
 
 MASKED_LOGIT = -1e9
@@ -97,12 +97,15 @@ def _mlp(in_dim: int, hidden_sizes: Sequence[int], out_dim: int, out_std: float)
 
 
 class ActorCritic(nn.Module):
-    def __init__(self, obs_dim: int = OBS_DIM, n_actions: int = N_ACTIONS, hidden_sizes: Sequence[int] = (256, 256),
-                 comm: bool = False):
+    def __init__(self, n_actions: int = N_ACTIONS, hidden_sizes: Sequence[int] = (256, 256), comm: bool = False,
+                 deduction: bool = True):
         super().__init__()
         self.comm = comm
+        # Without deduction the network reads only the observation fields that precede the deduction block,
+        # which is how networks trained before that block existed were built.
+        self.obs_dim = OBS_DIM if deduction else OBS_DIM_NO_DEDUCTION
         self.head_sizes: tuple[int, ...] = (n_actions,) + (MSG_HEAD_SIZES if comm else ())
-        in_dim = obs_dim + (COMM_GLOBAL_DIM + N_MSG_SLOTS * MSG_EMBED if comm else 0)
+        in_dim = self.obs_dim + (COMM_GLOBAL_DIM + N_MSG_SLOTS * MSG_EMBED if comm else 0)
         self.actor = _mlp(in_dim, hidden_sizes, sum(self.head_sizes), out_std=0.01)
         self.critic = _mlp(in_dim, hidden_sizes, 1, out_std=1.0)
         if comm:
@@ -112,6 +115,7 @@ class ActorCritic(nn.Module):
             nn.init.zeros_(self.actor_cond.weight)
 
     def _inputs(self, obs: torch.Tensor, comm_obs: torch.Tensor | None, encoder: nn.Module | None) -> torch.Tensor:
+        obs = obs[:, :self.obs_dim]
         if not self.comm:
             return obs
         comm_obs = comm_obs.float()
@@ -179,7 +183,7 @@ class PolicyController:
         self.greedy = greedy
 
     def _inputs(self, requests: list[Request]):
-        obs = np.stack([encode(r.game, r.player) for r in requests])
+        obs = encode_batch([(r.game, r.player) for r in requests])
         comm = np.stack([encode_comm(r.game, r.player) for r in requests]) if self.net.comm else None
         t_comm = torch.from_numpy(comm).to(self.device) if comm is not None else None
         return obs, comm, torch.from_numpy(obs).to(self.device), t_comm

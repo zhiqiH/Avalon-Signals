@@ -1,7 +1,7 @@
 # Communication configuration M+Team: M plus (4) team suggestions.
-# Identical to baseline_silent.yaml (S) except for the `comm` block and the branch start: each seed starts from
-# its own S checkpoint at half the budget (checkpoint_01460.pt, 747,520 games) and trains the remaining
-# 752,640 games (1,470 iterations), so every configuration has the same total budget as S (1,500,160 games).
+# Identical to baseline_silent.yaml (S) except for the `comm` block and the start: each seed starts from its own
+# frozen S checkpoint (baseline/seed{seed}/checkpoint_19532.pt, 10,000,384 games). The branch budget below is
+# provisional until the adaptation method (LoRA) is fixed; a silent control is trained the same way.
 # The silent weights are embedded with zero weights on all message inputs and outputs, so the run starts by
 # playing exactly like S. The PPO update runs on the GPU (rollouts always run on the CPU).
 name: comm_M_team
@@ -10,8 +10,9 @@ device: cuda
 total_games: 752640
 games_per_iter: 512
 checkpoint_every: 20
+workers: 4              # rollout worker processes per run; sized for 6 runs at once on 32 CPU threads
 out_dir: runs
-init_from: runs/baseline_silent/seed{seed}/checkpoint_01460.pt
+init_from: baseline/seed{seed}/checkpoint_19532.pt
 
 comm:
   enabled: true
@@ -23,6 +24,7 @@ comm:
 
 model:
   hidden_sizes: [256, 256]
+  deduction: true       # deduction fields of the observation (README, Observation)
 
 ppo:
   lr: 3.0e-4
