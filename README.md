@@ -295,6 +295,46 @@ python scripts/best_response.py --checkpoint baseline/seed0/checkpoint_19532.pt 
 | rule vs random | ≈ 0.65 |
 | random vs rule | ≈ 0.01 |
 
+### Human playtests in the browser
+
+`scripts/play_web.py` serves a Chinese browser table where one human plays against five seats of the
+frozen silent baseline (good and evil policies of the chosen seed, sampled as in evaluation; no
+communication phase, no learning). It uses only the standard-library HTTP server.
+
+```bash
+python scripts/play_web.py                         # http://127.0.0.1:8765, opens the browser
+python scripts/play_web.py --share --no-browser    # public HTTPS link through a Cloudflare Quick Tunnel
+```
+
+Each visitor picks a role, seat and baseline seed, and must choose on the setup screen whether to share
+the game. Completed games of visitors who agreed are appended to `--save-games`
+(default `logs/human_games.jsonl`, git-ignored, one JSON object per game); abandoned games and games of
+visitors who declined are never written. Each visitor's browser gets its own table through a session cookie;
+frozen weights are shared, game state is not. Idle tables expire after two hours; when 128 tables are open,
+a new visitor replaces the table idle for at least ten minutes, otherwise waits.
+
+Record fields: `consent_version`, `finished_utc`, `player` (random id per browser session, not the cookie),
+`player_game` (that visitor's game count), `baseline_seed`, `checkpoint_sha256`, `seed`, `human_seat` (0–5),
+`requested_role`, `human_role`, `human_won`, `seconds`, `human_decisions` (phase, quest, attempt, action,
+seconds since the start) and `game` (the full post-game record, all roles included). No IP address, name or
+browser data is stored. Keep these games apart from the automated evaluation: they measure play against
+humans, not self-play win rates.
+
+**Long-running host (e.g. WSL in tmux).** `--share` needs [cloudflared](https://developers.cloudflare.com/tunnel/downloads/)
+on the PATH (`brew install cloudflared` on macOS). It waits until the public `/api/health` answers before
+printing the link. A [Quick Tunnel](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/) URL
+changes on every restart and has no uptime guarantee; if the tunnel exits, the server exits too. For a stable
+address, run your own named tunnel or HTTPS reverse proxy to `http://127.0.0.1:8765` and start the server with
+`--public-url https://YOUR-HOST`, which only allows that origin and creates no tunnel.
+
+```bash
+tmux new -s avalon
+python scripts/play_web.py --share --no-browser
+```
+
+Other options: `--port 8766` if the port is taken; `--lan` to listen on all interfaces and print LAN URLs
+(the firewall must allow the port); `--baseline-seed` for the default seed in the setup screen.
+
 ## Compute
 
 The networks are small, so rollouts run on the CPU in worker processes (`workers` in the config; `src/training/workers.py`) and the PPO update runs on the GPU when there is one. Measured on a laptop with a Ryzen 9 8945HX (16 cores) and an RTX 5070 Ti, including evaluation and checkpoints:

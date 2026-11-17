@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Avalon · 真人牌桌</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Avalon 牌桌"><span class="brand-mark">A</span><span>AVALON<span class="brand-sub">THE SILENT TABLE</span></span></a>
+    <div class="top-note"><span class="live-dot"></span> 六人阿瓦隆 <span class="divider">/</span> 一位真人 · 五位 AI</div>
+    <nav><button class="text-button" id="rules-button">游戏规则</button><button class="outline-button" id="new-button">新开一局 <span>＋</span></button></nav>
+  </header>
+  <div class="page-heading"><div><span class="eyebrow">HUMAN × BASELINE</span><h1>落座，读懂每一次选择。</h1></div><span class="model-tag" id="model-tag">冻结策略 · Silent baseline</span></div>
+  <div class="layout">
+    <aside class="left-column">
+      <section class="identity panel" id="identity">
+        <div class="card-label">你的身份 <span>仅你可见</span></div>
+        <div class="role-emblem"><svg viewBox="0 0 80 88" aria-hidden="true"><path d="M40 4 70 16v26c0 19-17 32-30 40C27 74 10 61 10 42V16Z"/><path d="M40 22v37M25 38h30M30 63h20"/></svg></div>
+        <h2 id="role-name">等待入座</h2><p class="role-meta" id="role-meta">你的故事，从一张身份牌开始</p>
+        <div class="private-knowledge" id="private-info">身份与私人线索会在开局后显示在这里。</div>
+        <p class="role-goal" id="role-goal">其他玩家的真实身份将在结束后揭晓。</p>
+      </section>
+      <section class="guide panel"><span class="eyebrow">TABLE NOTES</span><h3>行动，也是一种语言。</h3><p>这一桌没有发言。留意谁提名了谁、谁赞成了队伍，以及任务结果。</p><div class="guide-rule"><span>4 票</span>赞成，队伍才会通过</div><div class="guide-rule"><span>1 张</span>失败牌，任务就会失败</div><div class="guide-rule"><span>5 次</span>连续否决，坏人获胜</div></section>
+    </aside>
+    <main>
+      <section class="quest-strip panel" aria-label="任务进度"><div class="strip-heading"><span>任务进程</span><span id="score">好人 0 <i>:</i> 0 坏人</span></div><div id="quests" class="quests"></div></section>
+      <section class="table-panel panel" aria-label="六人牌桌">
+        <div class="table-topline"><span id="round-label">准备开始</span><span id="attempt-label">组队 → 表决 → 任务</span></div>
+        <div class="board">
+          <div class="table-ring"><div class="table-inside"><span class="table-flower">✦</span><div id="table-title">AVALON</div><p id="table-subtitle">每一次选择，都留下线索</p><div class="selection-count" id="selection-count">THE SILENT TABLE</div></div></div>
+          <div id="seats"></div>
+        </div>
+        <div class="table-legend"><span><i class="legend-leader"></i>本轮队长</span><span><i class="legend-team"></i>任务队员</span><span>座位 1—6 · 点击座位选择</span></div>
+      </section>
+      <section class="action-panel panel" aria-labelledby="action-title">
+        <div id="steps" class="steps"></div>
+        <div class="event-banner" id="event-banner" aria-live="polite"></div>
+        <div class="action-heading"><div><span class="eyebrow" id="action-kicker">YOUR NEXT MOVE</span><h2 id="action-title">牌桌已准备好</h2><p id="action-hint">选择你的身份，与冻结的 baseline 玩一局。</p></div><span id="turn-badge" class="turn-badge">等待开局</span></div>
+        <div id="actions" class="action-buttons"></div>
+        <div id="error" class="error" role="alert" hidden></div>
+      </section>
+    </main>
+    <aside class="history-column panel"><div class="history-heading"><div><span class="eyebrow">PUBLIC RECORD</span><h2>圆桌纪事</h2></div><span id="history-count">0</span></div><p class="history-caption">只记录公开信息，按最近行动排序。</p><div id="history" class="history"></div><div class="history-key"><span class="approve-dot">●</span> 赞成 <span class="reject-dot">●</span> 反对 <span>数字对应座位</span></div></aside>
+  </div>
+  <footer><span>AVALON SIGNALS <span class="divider">/</span> HUMAN PLAYTEST</span><span>策略已冻结 · 私人信息仅向本人展示 · <span id="share-status">尚未选择是否共享数据</span></span></footer>
+  <dialog id="setup-dialog">
+    <form id="setup-form">
+      <span class="eyebrow">TAKE YOUR SEAT</span><h2>加入圆桌</h2><p class="dialog-intro">你掌控一个座位。其余五位玩家，将以训练后的策略回应你的选择。</p>
+      <label for="role-select">你的身份</label><select id="role-select"><option value="random">随机身份 · 让命运决定</option><option value="servant">忠臣 · 从公开线索推理</option><option value="merlin">梅林 · 知道坏人，隐藏自己</option><option value="percival">派西维尔 · 分辨两个候选人</option><option value="morgana">莫甘娜 · 隐藏并破坏任务</option><option value="assassin">刺客 · 找到梅林</option></select>
+      <div class="form-row"><div><label for="seat-select">你的座位</label><select id="seat-select"><option value="1">1 号座位</option><option value="2">2 号座位</option><option value="3">3 号座位</option><option value="4">4 号座位</option><option value="5">5 号座位</option><option value="6">6 号座位</option></select></div><div><label for="baseline-select">对手模型</label><select id="baseline-select"><option value="0">Baseline · Seed 0</option><option value="1">Baseline · Seed 1</option><option value="2">Baseline · Seed 2</option></select></div></div>
+      <fieldset class="consent" id="consent">
+        <legend>是否共享本局数据用于研究？</legend>
+        <p class="consent-text">这是 CS7329 课程项目的真人测试。若同意，本局结束后会保存你的每一步选择、用时和完整对局记录（含全部身份），以随机匿名编号标记；不记录姓名、IP 或浏览器信息，仅用于分析真人与 AI 的对局。中途退出的对局不保存。不同意也可以照常游戏。</p>
+        <label class="consent-option"><input type="radio" name="share" value="yes" required> 同意共享本局数据</label>
+        <label class="consent-option"><input type="radio" name="share" value="no" required> 不共享，只玩游戏</label>
+      </fieldset>
+      <p class="setup-note">无发言阶段。可以自由选择角色，模型不会继续训练。新开一局会替换当前对局。</p>
+      <p id="setup-error" class="error" role="alert" hidden></p>
+      <button class="primary-button full-width" id="start-button" type="submit">入座，开始游戏 <span>→</span></button><button type="button" class="text-button full-width" id="cancel-setup" hidden>返回当前牌桌</button>
+    </form>
+  </dialog>
+  <dialog id="rules-dialog"><span class="eyebrow">HOW TO PLAY</span><h2>六人，一场无声的博弈。</h2><div class="rules-content"><h3>阵营与目标</h3><p>好人：梅林、派西维尔、两位忠臣。坏人：莫甘娜、刺客。三次任务失败或连续五次否决，坏人获胜。三次任务成功后，刺客仍可通过刺中梅林取胜。</p><h3>每轮如何行动</h3><ol><li><b>组队：</b>轮到你当队长时，点击座位，再确认队伍。五次任务依次需要 2、3、4、3、4 人。</li><li><b>表决：</b>点击赞成或反对，所有投票一起公布。至少四票赞成才通过。</li><li><b>出牌：</b>任务成员秘密出牌。好人只能出成功；坏人可出成功或失败。任意一张失败牌就会令任务失败。</li><li><b>刺杀：</b>你是刺客时，点击目标座位并确认。</li></ol><h3>谁知道什么</h3><p>梅林知道两名坏人；坏人互相认识；派西维尔看到梅林与莫甘娜的候选座位，但不知道谁是谁。忠臣只有公开信息。</p><p>未轮到你时，点击「继续」观察 AI 行动。结束后可以下载包含完整身份的复盘。</p></div><button id="close-rules" class="primary-button full-width">明白了，回到圆桌</button></dialog>
+</body>
+</html>
