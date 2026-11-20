@@ -1,43 +1,27 @@
-"""Assassin advisor for real (human) Avalon tables: the frozen silent-baseline Assassin names its Merlin guess.
+"""Human test, assassination analysis mode (served by scripts/human_test.py).
 
-    python scripts/assassin_advisor.py              # http://127.0.0.1:8766
-    python scripts/assassin_advisor.py --lan        # also reachable from a phone on the same network
+A visitor records an offline human game: leader, team and votes of every proposal, then the Fail cards of
+every quest. When good completes three quests and the Assassin's and Morgana's seats are entered, the record
+is replayed into the exact information state the trained Assassin sees (`observation.encode`) and each frozen
+baseline seed reports its probability for every good seat. Seats are numbered 1-6 in leadership order.
+When both evil players were on a quest with one Fail card, the result averages over who played it.
 
-Record a live game in the browser: leader, team and votes of every proposal, then the number of Fail
-cards of every quest. If good completes three quests, enter the Assassin's and Morgana's seats; the
-script rebuilds the exact information state the trained Assassin would see at the assassination
-(`observation.encode`) and reports its probability for every good seat, per baseline seed and averaged.
-Afterwards the true Merlin (and what the human Assassin chose) can be added, and the history page
-gives the AI hit rate over all recorded games.
-
-Seats are numbered 1–6 in the order the leadership passes (the model assumes leader k is followed by k+1).
-When both evil players were on a quest with a single Fail card, it is unknown who played it; the
-advice then averages over both possibilities and lists each one.
-
-Each visitor gets a record code (a cookie; it can be typed in on another device) and sees only their
-own games. When a game ends the visitor chooses whether to share it; only shared games enter the
-"all shared games" statistics and `--export-shared`.
-
-Standalone: it only reads src/ and the frozen checkpoints, and writes one JSON file per game to
-logs/assassin_advisor/.
+Each visitor has a record code (cookie) and sees only their own records; only records the visitor chose to
+share enter the pooled statistics and `human_test.py --export-analysis`. One JSON file per record.
 """
 from __future__ import annotations
 
-import argparse
-import errno
 import hashlib
 import json
 import re
 import secrets
 import sys
 import threading
-import webbrowser
 from datetime import datetime, timezone
 from http.cookies import CookieError, SimpleCookie
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from itertools import product
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -51,10 +35,11 @@ from src.env.rules import APPROVALS_NEEDED, MAX_PROPOSALS, N_PLAYERS, QUEST_SIZE
 from src.training.checkpoint import load_policies
 
 ROOT = Path(__file__).resolve().parents[1]
-SAVE_DIR = ROOT / "logs" / "assassin_advisor"
+SAVE_DIR = ROOT / "logs" / "human_test" / "analysis"
 SEEDS = (0, 1, 2)
 ID_RE = re.compile(r"^[0-9a-f]{16}$")
-COOKIE = "advisor_code"
+COOKIE = "avalon_code"
+OLD_COOKIES = ("advisor_code",)  # read once so earlier visitors keep their records
 SEAT_FIELDS = ("first_leader", "assassin", "morgana", "human_target", "actual_merlin")
 
 
@@ -388,16 +373,19 @@ def parse_code(cookie_header: str) -> str | None:
         cookies.load(cookie_header or "")
     except CookieError:
         return None
-    morsel = cookies.get(COOKIE)
-    return morsel.value if morsel and ID_RE.match(morsel.value) else None
+    for name in (COOKIE, *OLD_COOKIES):
+        morsel = cookies.get(name)
+        if morsel and ID_RE.match(morsel.value):
+            return morsel.value
+    return None
 
 
 def code_cookie(code: str, secure: bool) -> str:
     return f"{COOKIE}={code}; Path=/; Max-Age=63072000; HttpOnly; SameSite=Lax" + ("; Secure" if secure else "")
 
 
-def advisor_api(store: Store, method: str, path: str, query: str, data: dict | None, code: str | None):
-    """One advisor API call -> (payload, status, code to set as cookie or None). Paths start with /api/."""
+def analysis_api(store: Store, method: str, path: str, query: str, data: dict | None, code: str | None):
+    """One analysis API call -> (payload, status, code to set as cookie or None). Paths start with /api/."""
     set_code = None
     if code is None:
         code = set_code = secrets.token_hex(8)
@@ -428,108 +416,3 @@ def advisor_api(store: Store, method: str, path: str, query: str, data: dict | N
         return {"error": "找不到这局记录。"}, 404, set_code
     except ValueError as exc:  # includes rule violations found by replay
         return {"error": str(exc)}, 400, set_code
-
-
-def handler_for(store: Store):
-    class Handler(BaseHTTPRequestHandler):
-        server_version = "AssassinAdvisor/1"
-
-        def log_message(self, fmt, *args):
-            pass
-
-        def send_body(self, body: bytes, mime: str, status=200, set_code=None):
-            self.send_response(status)
-            self.send_header("Content-Type", mime)
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Content-Security-Policy", CSP)
-            if set_code:
-                self.send_header("Set-Cookie", code_cookie(set_code, self.headers.get("X-Forwarded-Proto") == "https"))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def api(self, method, data=None):
-            url = urlsplit(self.path)
-            payload, status, set_code = advisor_api(store, method, url.path, url.query, data,
-                                                    parse_code(self.headers.get("Cookie", "")))
-            self.send_body(json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-                           "application/json; charset=utf-8", status, set_code)
-
-        def do_GET(self):
-            path = urlsplit(self.path).path
-            if path in STATIC:
-                name, mime = STATIC[path]
-                self.send_body((WEB / name).read_bytes(), mime + "; charset=utf-8")
-            else:
-                self.api("GET")
-
-        def do_POST(self):
-            try:
-                length = int(self.headers.get("Content-Length", 0))
-                if length > 200_000:
-                    raise ValueError("请求过大。")
-                data = json.loads(self.rfile.read(length) or b"{}")
-                if not isinstance(data, dict):
-                    raise ValueError("请求必须为对象。")
-            except ValueError as exc:
-                return self.send_body(json.dumps({"error": str(exc)}, ensure_ascii=False).encode(),
-                                      "application/json; charset=utf-8", 400)
-            self.api("POST", data)
-
-    return Handler
-
-
-WEB = ROOT / "web" / "site"
-# The page and its shared design/language files (also served by scripts/study_site.py under /advisor/).
-STATIC = {"/": ("advisor.html", "text/html"), "/advisor.js": ("advisor.js", "text/javascript"),
-          "/ui.css": ("ui.css", "text/css"), "/i18n.js": ("i18n.js", "text/javascript")}
-CSP = ("default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; "
-       "frame-ancestors 'none'")
-
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--port", type=int, default=8766)
-    parser.add_argument("--lan", action="store_true", help="监听 0.0.0.0，让同一局域网的手机也能打开")
-    parser.add_argument("--seeds", type=int, nargs="+", choices=SEEDS, default=list(SEEDS))
-    parser.add_argument("--save-dir", type=Path, default=SAVE_DIR)
-    parser.add_argument("--no-browser", action="store_true")
-    parser.add_argument("--export-shared", type=Path, metavar="OUT.jsonl",
-                        help="只把访客同意共享的对局导出为 JSONL（不含记录码），然后退出")
-    args = parser.parse_args()
-    if args.export_shared:
-        shared = [public(g) for g in Store(args.save_dir, {}).all_games() if g.get("share") is True]
-        args.export_shared.parent.mkdir(parents=True, exist_ok=True)
-        with args.export_shared.open("w", encoding="utf-8") as f:
-            for g in shared:
-                f.write(json.dumps(g, ensure_ascii=False) + "\n")
-        print(f"已导出 {len(shared)} 局共享对局到 {args.export_shared}")
-        return
-    torch.set_num_threads(1)
-    store = Store(args.save_dir, load_assassins(args.seeds))
-    legacy = store.adopt_orphans(args.save_dir.with_name(args.save_dir.name + "_legacy_code.txt"))
-    host = "0.0.0.0" if args.lan else "127.0.0.1"
-    try:
-        server = ThreadingHTTPServer((host, args.port), handler_for(store))
-    except OSError as exc:
-        if exc.errno == errno.EADDRINUSE:
-            parser.error(f"端口 {args.port} 已被占用，可改用 --port {args.port + 1}。")
-        raise
-    url = f"http://127.0.0.1:{args.port}"
-    print(f"刺客辅助：{url}（baseline seeds {args.seeds}）\n记录保存到 {args.save_dir.resolve()}\n按 Ctrl+C 关闭。", flush=True)
-    if legacy:
-        print(f"旧记录（加入记录码之前保存的）归在记录码 {legacy} 下，在页面「记录码」里输入即可查看。", flush=True)
-    if not args.no_browser:
-        webbrowser.open(url)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\n已关闭。")
-    finally:
-        server.server_close()
-
-
-if __name__ == "__main__":
-    main()

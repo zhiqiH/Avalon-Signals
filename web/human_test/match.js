@@ -1,8 +1,8 @@
 'use strict';
-// Human vs. frozen baseline table. All text comes from i18n.js; the server sends language-neutral keys.
+// Human test, match mode: one human against five frozen baseline players. Text comes from i18n.js.
 const $ = id => document.getElementById(id);
 const T = I18N.t;
-const BASE = location.pathname.startsWith('/play') ? '/play' : '';  // served alone or under the study site
+const BASE = '/match';
 const SIZES = [2, 3, 4, 3, 4];
 const CROWN = '<svg viewBox="0 0 16 16"><path d="M2 12.5h12l1-7.5-4 3-3-5.5-3 5.5-4-3z"/></svg>';
 let S = {active: false}, sel = new Set(), busy = false, timer = null;

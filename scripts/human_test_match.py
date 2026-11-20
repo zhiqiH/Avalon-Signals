@@ -1,30 +1,18 @@
-"""Browser table for human playtests: one human and five frozen silent-baseline players.
+"""Human test, match mode: one human and five frozen silent-baseline players (served by scripts/human_test.py).
 
-    python scripts/play_web.py                    # local, http://127.0.0.1:8765
-    python scripts/play_web.py --share --no-browser   # temporary public HTTPS link (cloudflared)
-
-Visitors choose on the setup screen whether to share their games. Completed games of visitors
-who agreed are appended to --save-games (JSONL, one game per line) for later analysis.
-Uses only the existing Python dependencies and the standard-library HTTP server.
+Each browser gets its own table; frozen weights are shared, game state is not. Completed games of visitors
+who agreed to share are appended to the match log (JSONL, one game per line, no IP or browser data).
 """
 from __future__ import annotations
 
-import argparse
-import errno
 import hashlib
 import json
 import secrets
-import signal
-import socket
 import sys
 import threading
 import time
-import webbrowser
 from datetime import datetime, timezone
-from http.cookies import CookieError, SimpleCookie
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -38,9 +26,7 @@ from src.env.rules import QUEST_SIZES, Phase, Role, WinReason
 from src.training.checkpoint import load_policies
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSETS = ROOT / "web" / "human"
-SHARED = ROOT / "web" / "site"  # design system and language file shared with the study site
-CONSENT_VERSION = 2  # Bump when the consent text in web/human/index.html changes (2: shortened, 2026-11-20).
+CONSENT_VERSION = 2  # Bump when the consent wording in web/human_test changes (2: one-line text, 2026-11-20).
 ROLE_NAMES = {Role.SERVANT: "忠臣", Role.MERLIN: "梅林", Role.PERCIVAL: "派西维尔",
               Role.MORGANA: "莫甘娜", Role.ASSASSIN: "刺客"}
 REASONS = {WinReason.ASSASSIN_MISSED: "刺杀未命中梅林", WinReason.ASSASSIN_HIT: "刺客命中梅林",
@@ -327,196 +313,3 @@ class TableSessions:
                     del self.tables[session_id]
                 raise
             return result, session_id
-
-
-def handler_for(sessions, extra_hosts=(), public_origin=None):
-    class Handler(BaseHTTPRequestHandler):
-        def respond(self, data, status=200, mime="application/json; charset=utf-8"):
-            body = data if isinstance(data, bytes) else json.dumps(data, ensure_ascii=False).encode()
-            self.send_response(status)
-            self.send_header("Content-Type", mime)
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            if getattr(self, "session_id", None):
-                secure = "; Secure" if self.public_origin and self.public_origin.startswith("https://") and (
-                    self.headers.get("Host") == urlsplit(self.public_origin).netloc
-                    or self.headers.get("X-Forwarded-Proto") == "https") else ""
-                self.send_header("Set-Cookie", f"avalon_session_{self.server.server_port}={self.session_id}; "
-                                 f"Path=/; HttpOnly; SameSite=Strict{secure}")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'")
-            self.end_headers()
-            self.wfile.write(body)
-
-        def api_request(self, path, data=None):
-            cookies = SimpleCookie()
-            try:
-                cookies.load(self.headers.get("Cookie", ""))
-            except CookieError:
-                cookies = SimpleCookie()
-            cookie = cookies.get(f"avalon_session_{self.server.server_port}")
-            result, self.session_id = sessions.request(cookie.value if cookie else None, path, data)
-            self.respond(result)
-
-        def same_origin(self):
-            host = self.headers.get("Host", "")
-            allowed = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
-            allowed.update(f"{address}:{self.server.server_port}" for address in extra_hosts)
-            if self.public_origin:
-                allowed.add(urlsplit(self.public_origin).netloc)
-            origin = self.headers.get("Origin")
-            return host in allowed and (origin is None or origin == f"http://{host}" or origin == self.public_origin)
-
-        def do_GET(self):
-            if not self.same_origin():
-                return self.respond({"error": "此地址未配置为牌桌入口。"}, 403)
-            path = urlsplit(self.path).path
-            if path == "/api/health":
-                return self.respond({"service": "avalon-human-table", "ready": True})
-            if path in ("/api/state", "/api/replay"):
-                try:
-                    return self.api_request(path)
-                except ValueError as exc:
-                    return self.respond({"error": str(exc)}, 400)
-                except RuntimeError as exc:
-                    return self.respond({"error": str(exc)}, 503)
-            files = {"/": (ASSETS / "index.html", "text/html"), "/app.js": (ASSETS / "app.js", "text/javascript"),
-                     "/ui.css": (SHARED / "ui.css", "text/css"), "/i18n.js": (SHARED / "i18n.js", "text/javascript")}
-            if path not in files:
-                return self.respond({"error": "Not found"}, 404)
-            file, mime = files[path]
-            self.respond(file.read_bytes(), mime=mime + "; charset=utf-8")
-
-        def do_POST(self):
-            if not self.same_origin():
-                return self.respond({"error": "仅支持同源访问。"}, 403)
-            if self.headers.get_content_type() != "application/json":
-                return self.respond({"error": "需要 JSON 请求。"}, 415)
-            try:
-                size = int(self.headers.get("Content-Length", "0"))
-                if not 0 < size <= 8192:
-                    raise ValueError("请求大小不合法。")
-                data = json.loads(self.rfile.read(size))
-                if not isinstance(data, dict):
-                    raise ValueError("请求必须为对象。")
-                path = urlsplit(self.path).path
-                if path in ("/api/new", "/api/action", "/api/advance"):
-                    return self.api_request(path, data)
-                return self.respond({"error": "Not found"}, 404)
-            except (ValueError, UnicodeError) as exc:
-                self.respond({"error": str(exc)}, 400)
-            except OSError:
-                self.respond({"error": "模型文件无法读取，请确认 baseline 文件已同步。"}, 500)
-            except RuntimeError as exc:
-                self.respond({"error": str(exc)}, 503)
-
-        def log_message(self, format, *args):
-            pass
-    Handler.public_origin = public_origin
-    return Handler
-
-
-def lan_addresses():
-    """Discover local IPv4 addresses; the UDP route lookup sends no data."""
-    found = set()
-    try:
-        for entry in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            found.add(entry[4][0])
-    except OSError:
-        pass
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.connect(("192.0.2.1", 80))
-            found.add(sock.getsockname()[0])
-    except OSError:
-        pass
-    return sorted(address for address in found if not address.startswith("127.") and address != "0.0.0.0")
-
-
-def public_url(value):
-    parsed = urlsplit(value)
-    if (parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password
-            or parsed.path not in ("", "/") or parsed.query or parsed.fragment):
-        raise argparse.ArgumentTypeError("请输入完整公网入口，例如 https://avalon.example.com，不要附带路径。")
-    try:
-        parsed.port
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("公网入口端口无效。") from exc
-    return f"{parsed.scheme}://{parsed.netloc}"
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--baseline-seed", type=int, choices=(0, 1, 2), default=0)
-    parser.add_argument("--no-browser", action="store_true")
-    parser.add_argument("--lan", action="store_true", help="允许同一局域网访问，并打印可分享的本机 IP 链接")
-    parser.add_argument("--share", action="store_true", help="通过 cloudflared 自动生成公网 HTTPS 试玩链接")
-    parser.add_argument("--public-url", type=public_url, help="已配置的公网反向代理/隧道入口；此选项本身不会创建隧道")
-    parser.add_argument("--save-games", type=Path, default=ROOT / "logs" / "human_games.jsonl",
-                        help="同意共享的访客，其完整对局追加到此 JSONL（默认 logs/human_games.jsonl）")
-    args = parser.parse_args()
-    if not 1 <= args.port <= 65535:
-        parser.error("端口必须在 1–65535 之间。")
-    if args.share and args.public_url:
-        parser.error("--share 自动分配公网链接，请勿与 --public-url 同时使用。")
-    torch.set_num_threads(1)
-    addresses = lan_addresses() if args.lan else []
-    bind_host = "0.0.0.0" if args.lan else "127.0.0.1"
-    if args.lan and not addresses:
-        parser.error("未发现可分享的局域网 IPv4 地址，请先连接 Wi-Fi 或有线网络。")
-    handler = handler_for(TableSessions(args.baseline_seed, log=GameLog(args.save_games)), addresses, args.public_url)
-    try:
-        server = ThreadingHTTPServer((bind_host, args.port), handler)
-    except OSError as exc:
-        if exc.errno == errno.EADDRINUSE:
-            alternative = args.port + 1 if args.port < 65535 else 8765
-            parser.error(f"端口 {args.port} 已被占用。若牌桌已经运行，可直接使用现有链接；"
-                         f"如需重新启动，请先关闭旧服务，或改用其他端口，例如 --port {alternative}。")
-        parser.error(f"无法启动牌桌：{exc}")
-    url = f"http://127.0.0.1:{args.port}"
-    tunnel = None
-
-    def stop(signum, frame):
-        raise KeyboardInterrupt
-
-    signal.signal(signal.SIGTERM, stop)
-    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
-    try:
-        if args.share:
-            from scripts.share_tunnel import QuickTunnel
-            tunnel = QuickTunnel(url)
-            print("正在创建公网 HTTPS 入口…", flush=True)
-            handler.public_origin = tunnel.start()
-            print("地址已分配，正在等待 DNS 与公网入口就绪…", flush=True)
-            tunnel.wait_ready()
-            print(f"公网分享：{handler.public_origin}", flush=True)
-            print("任何拿到此链接的人都可以独立试玩。关闭服务后链接失效；重启会生成新地址。", flush=True)
-        print(f"Avalon 真人牌桌：{url}\n按 Ctrl+C 关闭。", flush=True)
-        for address in addresses:
-            print(f"局域网分享：http://{address}:{args.port}", flush=True)
-        if args.public_url:
-            print(f"公网入口（需已有反向代理或隧道）：{args.public_url}", flush=True)
-        print("每位访客独立一局；同一浏览器的多个标签页共用一局。", flush=True)
-        print(f"同意共享的对局将追加到：{args.save_games.resolve()}", flush=True)
-        if not args.no_browser:
-            webbrowser.open(handler.public_origin if args.share else url)
-        while server_thread.is_alive():
-            server_thread.join(timeout=0.5)
-            if tunnel is not None and tunnel.process.poll() is not None:
-                raise RuntimeError("公网隧道已断开，请重新启动生成新链接。")
-    except KeyboardInterrupt:
-        print("\n牌桌已关闭。")
-    except RuntimeError as exc:
-        parser.exit(1, str(exc) + "\n")
-    finally:
-        if tunnel is not None:
-            tunnel.close()
-        server.shutdown()
-        server_thread.join(timeout=5)
-        server.server_close()
-
-
-if __name__ == "__main__":
-    main()

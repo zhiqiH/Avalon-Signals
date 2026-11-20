@@ -295,45 +295,37 @@ python scripts/best_response.py --checkpoint baseline/seed0/checkpoint_19532.pt 
 | rule vs random | ≈ 0.65 |
 | random vs rule | ≈ 0.01 |
 
-### Human playtests in the browser
+### Human test site
 
-`scripts/play_web.py` serves a Chinese browser table where one human plays against five seats of the
-frozen silent baseline (good and evil policies of the chosen seed, sampled as in evaluation; no
-communication phase, no learning). It uses only the standard-library HTTP server.
+`scripts/human_test.py` serves the human test at one address (live at https://ronova.uk). The home page asks
+whether the visitor agrees to research use of their data, then offers two modes; pages are bilingual (Chinese
+by default, English on request) and live in `web/human_test/`.
 
-```bash
-python scripts/play_web.py                         # http://127.0.0.1:8765, opens the browser
-python scripts/play_web.py --share --no-browser    # public HTTPS link through a Cloudflare Quick Tunnel
-```
-
-Each visitor picks a role, seat and baseline seed, and must choose on the setup screen whether to share
-the game. Completed games of visitors who agreed are appended to `--save-games`
-(default `logs/human_games.jsonl`, git-ignored, one JSON object per game); abandoned games and games of
-visitors who declined are never written. Each visitor's browser gets its own table through a session cookie;
-frozen weights are shared, game state is not. Idle tables expire after two hours; when 128 tables are open,
-a new visitor replaces the table idle for at least ten minutes, otherwise waits.
-
-Record fields: `consent_version`, `finished_utc`, `player` (random id per browser session, not the cookie),
-`player_game` (that visitor's game count), `baseline_seed`, `checkpoint_sha256`, `seed`, `human_seat` (0–5),
-`requested_role`, `human_role`, `human_won`, `seconds`, `human_decisions` (phase, quest, attempt, action,
-seconds since the start) and `game` (the full post-game record, all roles included). No IP address, name or
-browser data is stored. Keep these games apart from the automated evaluation: they measure play against
-humans, not self-play win rates.
-
-**Long-running host (e.g. WSL in tmux).** `--share` needs [cloudflared](https://developers.cloudflare.com/tunnel/downloads/)
-on the PATH (`brew install cloudflared` on macOS). It waits until the public `/api/health` answers before
-printing the link. A [Quick Tunnel](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/) URL
-changes on every restart and has no uptime guarantee; if the tunnel exits, the server exits too. For a stable
-address, run your own named tunnel or HTTPS reverse proxy to `http://127.0.0.1:8765` and start the server with
-`--public-url https://YOUR-HOST`, which only allows that origin and creates no tunnel.
+- **Human vs. AI** (`/match/`, `scripts/human_test_match.py`): one human against five seats of the frozen silent
+  baseline (seed chosen per game; sampled as in evaluation; no communication, no learning).
+- **Assassination analysis** (`/analysis/`, `scripts/human_test_analysis.py`): a visitor records an offline human
+  game (leaders, teams, votes, Fail counts). After three successes and the Assassin's and Morgana's seats, the
+  record is replayed into the exact Assassin observation and each frozen seed reports P(Merlin) per good seat.
 
 ```bash
-tmux new -s avalon
-python scripts/play_web.py --share --no-browser
+python scripts/human_test.py                               # http://127.0.0.1:8770
+python scripts/human_test.py --no-browser                  # behind a tunnel or reverse proxy to port 8770
+python scripts/human_test.py --export-analysis out.jsonl   # shared analysis records, then exit
 ```
 
-Other options: `--port 8766` if the port is taken; `--lan` to listen on all interfaces and print LAN URLs
-(the firewall must allow the port); `--baseline-seed` for the default seed in the setup screen.
+Data (git-ignored) goes to `logs/human_test/`. Only data the visitor agreed to share is used for research:
+- `match_games.jsonl`: one line per finished match of a consenting visitor; abandoned matches and matches of
+  visitors who declined are never written. Fields: `consent_version`, `finished_utc`, `player` (random id per
+  browser session), `player_game`, `baseline_seed`, `checkpoint_sha256`, `seed`, `human_seat` (0–5),
+  `requested_role`, `human_role`, `human_won`, `seconds`, `human_decisions` and `game` (full record, all roles).
+  Matches served by this site carry `"entry": "site"`; earlier lines come from the previous standalone table.
+- `analysis/<id>.json`: one file per analysis record, kept so the visitor can continue it. A record code (cookie,
+  enterable on another device) limits each record to its owner; files store only a hash of the code. Only records
+  with `"share": true` enter the pooled statistics and `--export-analysis`.
+
+No IP address, name or browser data is stored. Keep these games apart from the automated evaluation: they
+measure play against humans, not self-play win rates. Each browser gets its own match table; idle tables expire
+after two hours, and at 128 open tables a new visitor replaces one idle for at least ten minutes.
 
 ## Compute
 

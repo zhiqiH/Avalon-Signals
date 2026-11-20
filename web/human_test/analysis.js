@@ -1,14 +1,15 @@
 'use strict';
-// Assassin helper: record a real game on the round table, then ask the frozen AI Assassin for Merlin.
+// Human test, assassination analysis: record an offline game, then the frozen AI Assassin estimates Merlin.
 const $ = id => document.getElementById(id);
 const T = I18N.t;
-const BASE = location.pathname.startsWith('/advisor') ? '/advisor' : '';  // served alone or under the study site
+const BASE = '/analysis';
+const GAME_KEY = 'avalon_analysis_game';
 const SIZES = [2, 3, 4, 3, 4], NEED = 4;
 const CROWN = '<svg viewBox="0 0 16 16"><path d="M2 12.5h12l1-7.5-4 3-3-5.5-3 5.5-4-3z"/></svg>';
 let rec = null, draft = {stage: 'team', team: [], votes: {}}, busy = false;
 
 function consent() { try { const v = localStorage.getItem('avalon_share'); return v === 'yes' ? true : v === 'no' ? false : null; } catch (e) { return null; } }
-function remember() { try { localStorage.setItem('advisor_game', rec.id); } catch (e) {} }
+function remember() { try { localStorage.setItem(GAME_KEY, rec.id); } catch (e) {} }
 function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; }
 function btn(label, cls, onClick, disabled = false) { const b = el('button', `btn ${cls}`); b.type = 'button'; b.textContent = label; b.disabled = disabled; b.addEventListener('click', onClick); return b; }
 function showErr(msg) { $('err').textContent = msg ? I18N.err(msg) : ''; $('err').hidden = !msg; }
@@ -286,7 +287,7 @@ $('code-go').addEventListener('click', async () => {
 I18N.onChange(render);
 (async () => {
   let id = null;
-  try { id = localStorage.getItem('advisor_game'); } catch (e) {}
+  try { id = localStorage.getItem(GAME_KEY) || localStorage.getItem('advisor_game'); } catch (e) {}  // key used before the rename
   if (id) { try { await loadGame(id); return; } catch (e) {} }
   newGame();
 })();

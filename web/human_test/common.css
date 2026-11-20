@@ -1,4 +1,4 @@
-/* Avalon Signals: one design system for the home page, the table (/play/) and the advisor (/advisor/). */
+/* Avalon Signals human test: one design system for the home page, /match/ and /analysis/. */
 :root{
   --bg:#f4f3ef;--surface:#fff;--sunken:#ecebe5;--ink:#1d2a2e;--muted:#7a8482;--line:#e2e1da;
   --good:#2e7d62;--good-soft:#e2f0ea;--evil:#b3473d;--evil-soft:#f7e6e3;--gold:#c0973a;--gold-soft:#f6eedb;
@@ -178,3 +178,4 @@ body:not(.undecided) .hint{visibility:hidden}
 .card .row:first-child{margin-top:0}
 #note{margin-top:12px}
 dialog .log button{margin-left:4px}
+@media (max-width:420px){.logo span{font-size:14px;letter-spacing:.08em}}
