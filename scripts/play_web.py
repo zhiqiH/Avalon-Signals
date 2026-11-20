@@ -39,11 +39,16 @@ from src.training.checkpoint import load_policies
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "web" / "human"
-CONSENT_VERSION = 1  # Bump when the consent text in web/human/index.html changes.
+SHARED = ROOT / "web" / "site"  # design system and language file shared with the study site
+CONSENT_VERSION = 2  # Bump when the consent text in web/human/index.html changes (2: shortened, 2026-11-20).
 ROLE_NAMES = {Role.SERVANT: "忠臣", Role.MERLIN: "梅林", Role.PERCIVAL: "派西维尔",
               Role.MORGANA: "莫甘娜", Role.ASSASSIN: "刺客"}
 REASONS = {WinReason.ASSASSIN_MISSED: "刺杀未命中梅林", WinReason.ASSASSIN_HIT: "刺客命中梅林",
            WinReason.THREE_FAILS: "三次任务失败", WinReason.FIVE_REJECTIONS: "连续五次组队被否决"}
+
+
+# Language-neutral option kinds for the browser (the labels above stay for older clients and logs).
+OPTION_KINDS = {A.APPROVE: "approve", A.REJECT: "reject", A.SUCCESS: "success", A.FAIL: "fail"}
 
 
 def seats(values) -> str:
@@ -179,7 +184,8 @@ class HumanTable:
                                    "seconds": round(self.clock() - self.started, 1)})
         if phase == Phase.PROPOSE:
             team = [int(p) + 1 for p in np.flatnonzero(game.team)]
-            self.event = {"kind": "proposal", "text": f"{leader + 1} 号提议让 {'、'.join(map(str, team))} 号执行任务。"}
+            self.event = {"kind": "proposal", "leader": leader + 1, "team": team,
+                          "text": f"{leader + 1} 号提议让 {'、'.join(map(str, team))} 号执行任务。"}
         elif phase == Phase.VOTE:
             votes = game.prop_votes[q, attempt].tolist()
             passed = bool(game.prop_approved[q, attempt])
@@ -190,7 +196,8 @@ class HumanTable:
             self.event = {"kind": "quest", "fails": fails, "quest": q,
                           "text": f"第 {q + 1} 次任务{'失败' if fails else '成功'}，共 {fails} 张失败牌。"}
         else:
-            self.event = {"kind": "assassination", "text": f"刺杀目标为 {game.assassin_target + 1} 号。"}
+            self.event = {"kind": "assassination", "target": game.assassin_target + 1,
+                          "text": f"刺杀目标为 {game.assassin_target + 1} 号。"}
         self.revision += 1
         if game.done and self.share:
             self.log.write(self.record())
@@ -218,7 +225,7 @@ class HumanTable:
         options = []
         if human_turn:
             for action, label in action_options(g, h):
-                option = {"action": action, "label": label}
+                option = {"action": action, "label": label, "kind": OPTION_KINDS.get(action, "team" if g.phase == Phase.PROPOSE else "target")}
                 if g.phase == Phase.PROPOSE:
                     option["team"] = [s + 1 for s in A.decode_team(h, action, g.team_size)]
                 elif g.phase == Phase.ASSASSINATE:
@@ -236,7 +243,7 @@ class HumanTable:
                                 "approved": bool(g.prop_approved[q, a]) if g.prop_voted[q, a] else None})
         state = {
             "active": True, "id": self.id, "revision": self.revision, "baseline": self.baseline,
-            "human": h + 1, "role": ROLE_NAMES[Role(int(g.roles[h]))],
+            "human": h + 1, "role": ROLE_NAMES[Role(int(g.roles[h]))], "role_key": Role(int(g.roles[h])).name,
             "side": "evil" if g.is_evil_seat(h) else "good",
             "known_evil": [int(s) + 1 for s in np.flatnonzero(evil)],
             "candidates": [int(s) + 1 for s in np.flatnonzero(candidates)],
@@ -255,7 +262,8 @@ class HumanTable:
         if g.done:
             state["result"] = {"good_won": bool(g.good_won), "human_won": bool(g.good_won) != g.is_evil_seat(h),
                                "reason": REASONS[g.win_reason], "target": g.assassin_target + 1,
-                               "roles": [ROLE_NAMES[Role(int(r))] for r in g.roles]}
+                               "roles": [ROLE_NAMES[Role(int(r))] for r in g.roles],
+                               "reason_key": g.win_reason.name, "role_keys": [Role(int(r)).name for r in g.roles]}
         return state
 
     def replay(self):
@@ -372,12 +380,12 @@ def handler_for(sessions, extra_hosts=(), public_origin=None):
                     return self.respond({"error": str(exc)}, 400)
                 except RuntimeError as exc:
                     return self.respond({"error": str(exc)}, 503)
-            files = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
-                     "/style.css": ("style.css", "text/css")}
+            files = {"/": (ASSETS / "index.html", "text/html"), "/app.js": (ASSETS / "app.js", "text/javascript"),
+                     "/ui.css": (SHARED / "ui.css", "text/css"), "/i18n.js": (SHARED / "i18n.js", "text/javascript")}
             if path not in files:
                 return self.respond({"error": "Not found"}, 404)
-            name, mime = files[path]
-            self.respond((ASSETS / name).read_bytes(), mime=mime + "; charset=utf-8")
+            file, mime = files[path]
+            self.respond(file.read_bytes(), mime=mime + "; charset=utf-8")
 
         def do_POST(self):
             if not self.same_origin():

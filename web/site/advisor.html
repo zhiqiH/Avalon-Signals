@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>刺客辅助 · Avalon</title>
+  <link rel="stylesheet" href="/ui.css">
+  <script src="/i18n.js"></script>
+  <script src="advisor.js" defer></script>
+</head>
+<body data-title="a.title">
+  <header class="bar">
+    <a class="logo" href="/"><i>A</i>AVALON</a>
+    <button class="ibtn" id="hist-btn" data-t-label="history"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></button>
+    <button class="ibtn" id="code-btn" data-t-label="code"><svg viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l3 3"/></svg></button>
+    <button class="ibtn" data-lang-toggle aria-label="Language">EN</button>
+    <button class="ibtn" id="new-btn" data-t-label="newGame"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+  </header>
+
+  <main class="wrap grid">
+    <section class="card">
+      <div class="track"><div class="quests" id="quests"></div><div class="tries" id="tries"></div></div>
+      <div class="ring" id="ring"><div class="center"><div class="big" id="c-big"></div><div class="sub" id="c-sub"></div></div></div>
+      <div class="dock sticky" id="dock"></div>
+      <p class="err" id="err" hidden></p>
+    </section>
+    <aside class="stack">
+      <section class="card" id="result" hidden></section>
+      <section class="card">
+        <div class="head"><p class="label" data-t="log">记录</p><button class="btn ghost slim" id="undo" data-t="undo">撤销</button></div>
+        <div id="log"></div>
+        <input class="input" id="note" data-t-ph="note" maxlength="200">
+      </section>
+    </aside>
+  </main>
+
+  <dialog id="hist"><h2 data-t="history">历史</h2><div id="hist-body"></div><div class="actions"><button class="btn primary wide" data-close data-t="ok">知道了</button></div></dialog>
+  <dialog id="code">
+    <h2 data-t="code">记录码</h2>
+    <p class="code" id="code-value"></p>
+    <p class="muted small" data-t="a.codeTip"></p>
+    <div class="actions"><input class="input" id="code-in" data-t-ph="a.codePh"><button class="btn primary" id="code-go" data-t="a.switch">切换</button></div>
+    <p class="err" id="code-err" hidden></p>
+    <div class="actions"><button class="btn ghost wide" data-close data-t="cancel">取消</button></div>
+  </dialog>
+</body>
+</html>

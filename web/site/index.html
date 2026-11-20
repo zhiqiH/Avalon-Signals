@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>阿瓦隆 · 真人实验</title>
+  <link rel="stylesheet" href="/ui.css">
+  <script src="/i18n.js"></script>
+  <script src="/home.js" defer></script>
+</head>
+<body class="undecided" data-title="home.title">
+  <header class="bar">
+    <a class="logo" href="/"><i>A</i>AVALON</a>
+    <button class="ibtn" data-lang-toggle aria-label="Language">EN</button>
+  </header>
+  <main class="wrap">
+    <section class="hero">
+      <h1 data-t="home.title">阿瓦隆 · 真人实验</h1>
+      <p data-t="home.sub">六人局 · AI 来自冻结的训练策略</p>
+    </section>
+
+    <section class="consent" role="radiogroup" aria-labelledby="share-q">
+      <span id="share-q" data-t="share.q">共享数据用于研究？</span>
+      <div class="chips">
+        <button class="chip good" data-share="yes" aria-pressed="false" data-t="share.yes">同意</button>
+        <button class="chip" data-share="no" aria-pressed="false" data-t="share.no">不同意</button>
+      </div>
+      <small class="muted" data-t="share.note">匿名，不含姓名或 IP</small>
+    </section>
+
+    <section class="modes">
+      <a class="mode card" href="/play/" data-mode>
+        <span class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="3.5" r="1.6"/><circle cx="12" cy="20.5" r="1.6"/><circle cx="4.6" cy="7.8" r="1.6"/><circle cx="19.4" cy="7.8" r="1.6"/><circle cx="4.6" cy="16.2" r="1.6"/><circle cx="19.4" cy="16.2" r="1.6"/></svg></span>
+        <h3 data-t="mode.play">人机对局</h3>
+        <p data-t="mode.play.d">你和 5 位 AI，无发言</p>
+        <span class="go" data-t="go">进入 →</span>
+      </a>
+      <a class="mode card" href="/advisor/" data-mode>
+        <span class="icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M11 7.5v7M7.5 11h7M16 16l4.5 4.5"/></svg></span>
+        <h3 data-t="mode.assist">刺客辅助</h3>
+        <p data-t="mode.assist.d">记录线下真人局，AI 帮你找梅林</p>
+        <span class="go" data-t="go">进入 →</span>
+      </a>
+    </section>
+    <p class="hint" data-t="home.hint">先选择是否共享数据</p>
+  </main>
+</body>
+</html>

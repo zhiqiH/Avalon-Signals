@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from scripts.play_web import GameLog, HumanTable, SessionExpired, TableSessions, action_options, handler_for, new_game
+from scripts.play_web import CONSENT_VERSION, GameLog, HumanTable, SessionExpired, TableSessions, action_options, handler_for, new_game
 from src.agents import RuleController
 from src.env import actions as A
 from src.env.rules import Phase, Role, WinReason
@@ -182,7 +182,7 @@ def test_only_consenting_visitors_are_logged_once_per_finished_game(sessions, tm
     assert first["player"] == second["player"] and (first["player_game"], second["player_game"]) == (1, 2)
     assert first["human_seat"] == 4 and first["human_role"] == "ASSASSIN"
     assert first["human_decisions"] and all("seconds" in d for d in first["human_decisions"])
-    assert first["game"]["roles"][4] == "ASSASSIN" and first["consent_version"] == 1
+    assert first["game"]["roles"][4] == "ASSASSIN" and first["consent_version"] == CONSENT_VERSION
     assert sid_yes not in json.dumps(lines)  # The session cookie never reaches the data file.
     assert sessions.request(sid_yes, "/api/replay")[0]["table_id"] == second["table_id"]
 
