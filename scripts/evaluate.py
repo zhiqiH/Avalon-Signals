@@ -8,7 +8,8 @@ Matchups: self-play, policy against rule-based players on each side, and the rul
 random-vs-random reference lines, all with the checkpoint's communication configuration. --silence
 forces the listed slots (or all) to say nothing at test time. Writes a JSON summary next to the
 checkpoint unless --out is given; --save-games also dumps every self-play game record (hidden roles
-and messages included) as JSON lines.
+and messages included) as JSON lines. --partners adds self-play with the logic partner in one, two and all
+three of the good team's Servant/Percival seats (the rule teacher speaks for them in a communication game).
 """
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repository root,
 from src.agents import PolicyController, RandomController, RuleController
 from src.evaluation import run_matchup
 from src.comm import SLOTS
+from src.env.game import AvalonGame
 from src.training.checkpoint import comm_config, load_checkpoint, load_policies
 
 
@@ -35,7 +37,10 @@ def main() -> None:
     parser.add_argument("--silence", default="", help="comma-separated slots to force silent at test time, or 'all'")
     parser.add_argument("--out")
     parser.add_argument("--save-games", help="JSONL file for the self-play game records")
+    parser.add_argument("--no-guard", action="store_true", help="lift the good players' vote guard (reference only)")
+    parser.add_argument("--partners", action="store_true", help="also play with 1-3 logic partners in good seats")
     args = parser.parse_args()
+    AvalonGame.good_guard = not args.no_guard
 
     nets = load_policies(args.checkpoint, args.device)
     policy = {t: PolicyController(nets[t], learn=False, device=args.device, greedy=args.greedy) for t in nets}
@@ -55,10 +60,16 @@ def main() -> None:
     }
 
     results = {"checkpoint": args.checkpoint, "games": args.games, "seed": args.seed, "greedy": args.greedy,
+               "good_guard": AvalonGame.good_guard,
                "comm": {s: comm.is_open(s) for s in SLOTS}, "silence": comm.silence}
+    partners = {name: 0 for name in matchups}
+    for k in (1, 2, 3) if args.partners else ():
+        matchups[f"selfplay_with_{k}_logic_partners"] = matchups["selfplay"]
+        partners[f"selfplay_with_{k}_logic_partners"] = k
     for name, (good, evil) in matchups.items():
         keep = name == "selfplay" and args.save_games is not None
-        summary, records = run_matchup(good, evil, args.games, args.seed, keep_records=keep, comm=comm)
+        summary, records = run_matchup(good, evil, args.games, args.seed, keep_records=keep, comm=comm,
+                                       partners=partners[name])
         results[name] = summary
         win = summary["good_win"]
         print(f"{name:28s} good win {win['rate']:.3f}  95% CI [{win['ci95'][0]:.3f}, {win['ci95'][1]:.3f}]")

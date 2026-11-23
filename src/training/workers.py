@@ -20,23 +20,28 @@ from typing import Sequence
 import numpy as np
 import torch
 
+from ..agents.logic_agent import PARTNER_ROLES, LogicController
 from ..agents.policy import ActorCritic, PolicyController
 from ..agents.rule_agent import RuleController
+from ..agents.teacher import TeacherSpeaker
 from ..config import TrainConfig
 from ..env.game import AvalonGame
+from ..env.rules import N_PLAYERS
 from ..evaluation.evaluate import paired_games
 from ..evaluation.metrics import game_outcome, summarize
 from ..runner import play
+from .adapt import plain_state_dict
 from .opponent_pool import OpponentPool
 from .rollout import TEAMS, Batch, TrajectoryRecorder
 
 # Who controls a team in one game: the current network, the rule-based players, or (an int) a pool snapshot.
-LEARNER, RULE = "learner", "rule"
+# PARTNER (good team only): the current network, with logic partners in one or more good seats.
+LEARNER, RULE, PARTNER = "learner", "rule", "partner"
 Spec = str | int
 
 
 def resolve(spec: Spec, team: str, learners: dict, pool: OpponentPool, rule: RuleController):
-    if spec == LEARNER:
+    if spec in (LEARNER, PARTNER):
         return learners[team]
     if spec == RULE:
         return rule
@@ -44,13 +49,41 @@ def resolve(spec: Spec, team: str, learners: dict, pool: OpponentPool, rule: Rul
 
 
 def _spec_key(spec: Spec) -> tuple[int, int]:
-    return (0, 0) if spec == LEARNER else (1, 0) if spec == RULE else (2, int(spec))
+    if spec in (LEARNER, PARTNER):
+        return (0, 0)  # the same network plays both, so these games batch together
+    return (1, 0) if spec == RULE else (2, int(spec))
+
+
+def partner_seats(games: Sequence[AvalonGame], specs: Sequence[tuple[Spec, Spec]], rng: np.random.Generator,
+                  partner: LogicController, max_partners: int) -> list[dict[int, LogicController]]:
+    """Per game, the seats the logic partner plays: 1..max_partners Servant/Percival seats in PARTNER games."""
+    out = []
+    for game, (good_spec, _) in zip(games, specs):
+        if good_spec != PARTNER:
+            out.append({})
+            continue
+        candidates = np.flatnonzero(np.isin(game.roles, [int(r) for r in PARTNER_ROLES]))
+        n = int(rng.integers(1, max_partners + 1))
+        out.append({int(s): partner for s in rng.choice(candidates, size=n, replace=False)})
+    return out
+
+
+def teacher_seats(cfg: TrainConfig, partners: Sequence[dict[int, LogicController]],
+                  rng: np.random.Generator) -> list[dict[int, TeacherSpeaker]] | None:
+    """Per communication game, the seats the rule teacher speaks for: every logic-partner seat (the partner
+    cannot speak) and each other seat with probability `adapt.teacher_share`. None in the silent game."""
+    if not cfg.comm.enabled:
+        return None
+    teacher = TeacherSpeaker(merlin_knowledge_prob=cfg.opponents.rule_merlin_knowledge_prob,
+                             seed=int(rng.integers(2**63)))
+    drawn = rng.random((len(partners), N_PLAYERS)) < cfg.adapt.teacher_share
+    return [{s: teacher for s in range(N_PLAYERS) if drawn[i, s] or s in partners[i]} for i in range(len(partners))]
 
 
 def cpu_state(net: torch.nn.Module) -> dict[str, np.ndarray]:
     """Weights as plain numpy arrays: torch tensors would travel as shared-memory file descriptors, one per
     tensor, and a pool refill to many workers runs out of open files."""
-    return {k: v.detach().cpu().numpy().copy() for k, v in net.state_dict().items()}
+    return {k: v.detach().cpu().numpy().copy() for k, v in plain_state_dict(net).items()}
 
 
 def _load(net: torch.nn.Module, state: dict[str, np.ndarray]) -> None:
@@ -66,15 +99,30 @@ def _new_net(cfg: TrainConfig) -> ActorCritic:
     return ActorCritic(hidden_sizes=cfg.model.hidden_sizes, comm=cfg.comm.enabled, deduction=cfg.model.deduction)
 
 
+def frozen_speakers(cfg: TrainConfig, device: str = "cpu") -> dict[str, PolicyController]:
+    """Listener stage (`adapt.speaker_from`): one frozen speaking policy per team; empty otherwise."""
+    if not cfg.adapt.speaker_from:
+        return {}
+    from .checkpoint import load_policies
+    nets = load_policies(cfg.adapt.speaker_from.format(seed=cfg.seed), device)
+    for net in nets.values():
+        net.eval()
+        for p in net.parameters():
+            p.requires_grad_(False)
+    return {t: PolicyController(nets[t], learn=False, device=device) for t in TEAMS}
+
+
 def _worker_main(conn, cfg: TrainConfig) -> None:
     torch.set_num_threads(1)  # many small batches: one core per worker is fastest
     try:
         nets = {t: _new_net(cfg) for t in TEAMS}
         scratch = _new_net(cfg)
-        learners = {t: PolicyController(nets[t], learn=True) for t in TEAMS}
-        frozen = {t: PolicyController(nets[t], learn=False) for t in TEAMS}
+        speakers = frozen_speakers(cfg)
+        learners = {t: PolicyController(nets[t], learn=True, speaker=speakers.get(t)) for t in TEAMS}
+        frozen = {t: PolicyController(nets[t], learn=False, speaker=speakers.get(t)) for t in TEAMS}
         rule = RuleController(cfg.opponents.rule_fail_prob, cfg.opponents.rule_merlin_knowledge_prob)
-        pool = OpponentPool(cfg.opponents.pool_size)
+        partner = LogicController(cfg.opponents.partner_slack)
+        pool = OpponentPool(cfg.opponents.pool_size, speakers)
         while True:
             cmd, *args = conn.recv()
             if cmd == "weights":
@@ -93,8 +141,10 @@ def _worker_main(conn, cfg: TrainConfig) -> None:
                 games = [AvalonGame(rng, comm=cfg.comm) for _ in specs]
                 good = [resolve(g, "good", learners, pool, rule) for g, _ in specs]
                 evil = [resolve(e, "evil", learners, pool, rule) for _, e in specs]
+                seats = partner_seats(games, specs, rng, partner, cfg.opponents.partner_max)
                 recorder = TrajectoryRecorder()
-                play(games, good, evil, rng, on_decision=recorder)
+                play(games, good, evil, rng, on_decision=recorder, seat_ctrls=seats,
+                     seat_speakers=teacher_seats(cfg, seats, rng))
                 batches = recorder.build(games, cfg.ppo.gamma, cfg.ppo.gae_lambda)
                 conn.send(("ok", (batches, [game_outcome(g) for g in games])))
             elif cmd == "eval":

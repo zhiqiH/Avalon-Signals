@@ -175,12 +175,34 @@ def load_silent_weights(net: ActorCritic, silent_state: dict[str, torch.Tensor])
     net.load_state_dict(state)
 
 
+def heads_kl(logits: torch.Tensor, ref_logits: torch.Tensor, masks: torch.Tensor, heads: torch.Tensor,
+             head_sizes: Sequence[int]) -> torch.Tensor:
+    """KL(policy || reference) of each decision, summed over the message heads it used (the game head is skipped)."""
+    kl = logits.new_zeros(len(logits))
+    off = head_sizes[0]
+    for h, size in enumerate(head_sizes[1:], start=1):
+        m = masks[:, off:off + size]
+        lp = torch.log_softmax(masked_logits(logits[:, off:off + size], m), dim=-1)
+        lq = torch.log_softmax(masked_logits(ref_logits[:, off:off + size], m), dim=-1)
+        per_row = (lp.exp() * (lp - lq)).masked_fill(~m, 0.0).sum(-1)
+        kl = kl + torch.where(heads[:, h] >= 0, per_row, torch.zeros_like(per_row))
+        off += size
+    return kl
+
+
 class PolicyController:
-    def __init__(self, net: ActorCritic, learn: bool, device: str | torch.device = "cpu", greedy: bool = False):
+    def __init__(self, net: ActorCritic, learn: bool, device: str | torch.device = "cpu", greedy: bool = False,
+                 speaker: "PolicyController | None" = None):
         self.net = net
         self.learn = learn
         self.device = torch.device(device)
         self.greedy = greedy
+        # Listener stage: messages come from a frozen speaker and are not training samples of this policy.
+        self.speaker = speaker
+
+    @property
+    def learn_speech(self) -> bool:
+        return self.learn and self.speaker is None
 
     def _inputs(self, requests: list[Request]):
         obs = encode_batch([(r.game, r.player) for r in requests])
@@ -210,6 +232,8 @@ class PolicyController:
     @torch.no_grad()
     def speak(self, requests: list[Request], rng: np.random.Generator) -> ActResult:
         """Sample messages head by head under the consistency masks: claim and judgments, then the rest conditioned on them."""
+        if self.speaker is not None:
+            return self.speaker.speak(requests, rng)
         if not self.net.comm:
             raise ValueError("a silent network cannot send messages")
         obs, comm, t_obs, t_comm = self._inputs(requests)

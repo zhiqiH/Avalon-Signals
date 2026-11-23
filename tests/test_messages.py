@@ -43,5 +43,6 @@ def test_random_speakers_accuse_at_chance():
     m = CommConfig(enabled=True, claim=False, team=False, intent=False)
     _, records = run_matchup(RandomController(), RandomController(), 300, 3, keep_records=True, comm=m)
     s = message_stats(records)
-    assert abs(s["accusation_precision"]["good"]["rate"] - 0.4) < 0.05
+    # Servants and Percival accuse at chance (two of the five others are evil); Merlin cannot accuse a good player.
+    assert 0.4 < s["accusation_precision"]["good"]["rate"] < 0.6
     assert abs(s["accusation_precision"]["evil"]["rate"] - 0.2) < 0.05

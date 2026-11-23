@@ -1,0 +1,63 @@
+{
+ "checkpoint": "runs/comm_F/stage3b_F/seed2/checkpoint_01000.pt",
+ "games": 300,
+ "good_win": 0.53,
+ "phases": [
+  "ASSASSINATE",
+  "DISCUSS",
+  "EVIL_DISCUSS",
+  "PROPOSE",
+  "QUEST",
+  "VOTE"
+ ],
+ "roles_example": [
+  "SERVANT",
+  "SERVANT",
+  "MERLIN",
+  "ASSASSIN",
+  "PERCIVAL",
+  "MORGANA"
+ ],
+ "stabs_per_game": 0.813,
+ "assassin_named_someone": 0.992,
+ "stab_is_the_named": 0.256,
+ "stab_hits_merlin": 0.348,
+ "evil_pair_name_same": 0.293,
+ "fifth_proposals_per_game": 1.35,
+ "own_proposal_unwanted_by_attempt": {
+  "0": [
+   0.277,
+   1298
+  ],
+  "1": [
+   0.414,
+   768
+  ],
+  "2": [
+   0.398,
+   625
+  ],
+  "3": [
+   0.331,
+   502
+  ],
+  "4": [
+   0.017,
+   405
+  ]
+ },
+ "good": {
+  "own_proposal_unwanted": 0.34,
+  "votes_forced_by_words": 0.092,
+  "of_those_against_wish": 0.434,
+  "votes_forced_fifth": 0.09,
+  "votes_forced_dirty": 0.071
+ },
+ "evil": {
+  "own_proposal_unwanted": 0.235,
+  "votes_forced_by_words": 0.111,
+  "of_those_against_wish": 0.523,
+  "votes_forced_fifth": 0.0,
+  "votes_forced_dirty": 0.0
+ }
+}

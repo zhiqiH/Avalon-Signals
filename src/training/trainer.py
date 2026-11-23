@@ -8,7 +8,6 @@ the silent weights are embedded so that the network initially plays exactly like
 """
 from __future__ import annotations
 
-import copy
 import json
 import math
 import platform
@@ -22,6 +21,7 @@ import numpy as np
 import torch
 import yaml
 
+from ..agents.logic_agent import LogicController
 from ..agents.policy import ActorCritic, PolicyController, load_silent_weights
 from ..agents.rule_agent import RuleController
 from ..config import TrainConfig, config_to_dict
@@ -29,13 +29,15 @@ from ..env.game import AvalonGame
 from ..evaluation.evaluate import run_matchup
 from ..evaluation.metrics import game_outcome, summarize
 from ..runner import play
+from .adapt import adapter_state, apply_lora, plain_state_dict, trainable_parameters
 from .checkpoint import comm_config, load_checkpoint, load_policies, save_checkpoint
 from .opponent_pool import OpponentPool
 from .ppo import ppo_update
 from .rollout import TEAMS, TrajectoryRecorder, message_usage
-from .workers import LEARNER, RULE, RolloutWorkers, Spec, resolve
+from .workers import (LEARNER, PARTNER, RULE, RolloutWorkers, Spec, frozen_speakers, partner_seats, resolve,
+                      teacher_seats)
 
-MODES = ("self", "pool", "rule")
+MODES = ("self", "pool", "rule", "partner")
 
 
 def resolve_device(name: str) -> torch.device:
@@ -68,13 +70,17 @@ def run_info(device: torch.device) -> dict:
 def sample_matchups(n_games: int, pool_sizes: dict[str, int], probs, rng) -> tuple[list[tuple[Spec, Spec]], list[str]]:
     """Choose who controls each team in each training game: (good spec, evil spec) per game, and its mode.
 
-    A spec is LEARNER, RULE or an index into that team's opponent pool (see `workers.resolve`).
+    A spec is LEARNER, RULE, PARTNER (good team only) or an index into that team's opponent pool
+    (see `workers.resolve`).
     """
     specs, modes = [], []
+    probs = list(probs) + [0.0] * (len(MODES) - len(probs))  # callers predating the partner mode
     for _ in range(n_games):
-        mode = MODES[rng.choice(3, p=probs)]
+        mode = MODES[rng.choice(len(MODES), p=probs)]
         spec = {"good": LEARNER, "evil": LEARNER}
-        if mode != "self":
+        if mode == "partner":
+            spec["good"] = PARTNER
+        elif mode != "self":
             frozen_team = TEAMS[int(rng.integers(2))]
             if mode == "rule":
                 spec[frozen_team] = RULE
@@ -120,14 +126,13 @@ def train(cfg: TrainConfig) -> Path:
 
     nets = {t: ActorCritic(hidden_sizes=cfg.model.hidden_sizes, comm=cfg.comm.enabled,
                            deduction=cfg.model.deduction).to(device) for t in TEAMS}
-    opts = {t: torch.optim.Adam(nets[t].parameters(), lr=cfg.ppo.lr, eps=1e-5) for t in TEAMS}
     iteration = games_seen = 0
     latest = run_dir / "latest.pt"
+    ckpt = None
     if cfg.resume and latest.exists():
         ckpt = load_checkpoint(latest, device)
         for t in TEAMS:
             nets[t].load_state_dict(ckpt["nets"][t])
-            opts[t].load_state_dict(ckpt["optimizers"][t])
         iteration, games_seen = ckpt["iteration"], ckpt["games_seen"]
         rng.bit_generator.state = ckpt["numpy_rng"]
         torch.set_rng_state(ckpt["torch_rng"].cpu())
@@ -142,17 +147,45 @@ def train(cfg: TrainConfig) -> Path:
             else:
                 nets[t].load_state_dict(ckpt["nets"][t])
         print(f"initialised network weights from {init_from}" + (" (silent branch point)" if branch else ""))
+    if cfg.adapt.lora_rank > 0:
+        for t in TEAMS:
+            apply_lora(nets[t], cfg.adapt.lora_rank, cfg.adapt.lora_scale).to(device)
+            if ckpt is not None and ckpt.get("adapter"):  # same adapters as the run this one resumes or continues
+                nets[t].load_state_dict(ckpt["adapter"][t])
+        n_train = sum(p.numel() for p in trainable_parameters(nets["good"]))
+        print(f"LoRA rank {cfg.adapt.lora_rank}: {n_train:,} trainable parameters per team"
+              + (" (adapters continued from the starting checkpoint)" if ckpt is not None and ckpt.get("adapter") else ""))
+    opts = {t: torch.optim.Adam(trainable_parameters(nets[t]), lr=cfg.ppo.lr, eps=1e-5) for t in TEAMS}
+    if cfg.resume and iteration > 0:
+        for t in TEAMS:
+            opts[t].load_state_dict(ckpt["optimizers"][t])
+    anchors = None
+    if cfg.adapt.msg_kl_coef > 0:
+        anchors = load_policies(cfg.adapt.anchor_from.format(seed=cfg.seed), device)
+        for net in anchors.values():
+            net.eval().requires_grad_(False)
 
     (run_dir / "config.yaml").write_text(yaml.safe_dump(config_to_dict(cfg), sort_keys=False), encoding="utf-8")
     with open(run_dir / "run_info.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps({"iteration": iteration, **run_info(device)}) + "\n")
 
-    # Rollouts run on CPU copies: per-tick batches are small, so GPU transfers would dominate.
-    rollout_nets = nets if device.type == "cpu" else {t: copy.deepcopy(nets[t]).to("cpu") for t in TEAMS}
-    learners = {t: PolicyController(rollout_nets[t], learn=True) for t in TEAMS}
-    frozen_views = {t: PolicyController(rollout_nets[t], learn=False) for t in TEAMS}
+    # Rollouts run on plain CPU copies: per-tick batches are small, so GPU transfers would dominate, and
+    # adapted networks are merged once per update instead of on every forward pass.
+    if device.type == "cpu" and cfg.adapt.lora_rank == 0:
+        rollout_nets = nets
+    else:
+        rollout_nets = {t: ActorCritic(hidden_sizes=cfg.model.hidden_sizes, comm=cfg.comm.enabled,
+                                       deduction=cfg.model.deduction) for t in TEAMS}
+        for t in TEAMS:
+            rollout_nets[t].load_state_dict({k: v.cpu() for k, v in plain_state_dict(nets[t]).items()})
+    speakers = frozen_speakers(cfg)
+    if speakers:
+        print(f"listener stage: every learned player speaks with the frozen networks of {cfg.adapt.speaker_from.format(seed=cfg.seed)}")
+    learners = {t: PolicyController(rollout_nets[t], learn=True, speaker=speakers.get(t)) for t in TEAMS}
+    frozen_views = {t: PolicyController(rollout_nets[t], learn=False, speaker=speakers.get(t)) for t in TEAMS}
     rule = RuleController(cfg.opponents.rule_fail_prob, cfg.opponents.rule_merlin_knowledge_prob)
-    pool = OpponentPool(cfg.opponents.pool_size)
+    partner = LogicController(cfg.opponents.partner_slack)
+    pool = OpponentPool(cfg.opponents.pool_size, speakers)
     restored = refill_pool(pool, run_dir, iteration, cfg.opponents.snapshot_every, cfg.opponents.pool_size) if iteration else []
     with RolloutWorkers(cfg.workers, cfg) if cfg.workers else nullcontext() as workers:
         if workers:
@@ -161,14 +194,23 @@ def train(cfg: TrainConfig) -> Path:
                 workers.pool_add(nets_then)
             workers.set_weights(nets)
         _train_loop(cfg, run_dir, device, rng, nets, opts, rollout_nets, learners, frozen_views, rule, pool, workers,
-                    iteration, games_seen)
+                    iteration, games_seen, anchors, partner)
     return run_dir
 
 
+def msg_kl_coef(cfg: TrainConfig, iteration: int) -> float:
+    """Weight of the message KL anchor at an iteration: constant, or falling linearly over `msg_kl_anneal`
+    iterations to `msg_kl_floor` (0 by default), where it stays."""
+    a = cfg.adapt
+    if a.msg_kl_anneal <= 0:
+        return a.msg_kl_coef
+    return max(a.msg_kl_floor, a.msg_kl_coef * max(0.0, 1.0 - iteration / a.msg_kl_anneal))
+
+
 def _train_loop(cfg, run_dir, device, rng, nets, opts, rollout_nets, learners, frozen_views, rule, pool, workers,
-                iteration, games_seen) -> None:
+                iteration, games_seen, anchors=None, partner=None) -> None:
     latest = run_dir / "latest.pt"
-    probs = [cfg.opponents.p_self, cfg.opponents.p_pool, cfg.opponents.p_rule]
+    probs = [cfg.opponents.p_self, cfg.opponents.p_pool, cfg.opponents.p_rule, cfg.opponents.p_partner]
     n_iters = math.ceil(cfg.total_games / cfg.games_per_iter)
     eval_seed = 10_000 + cfg.seed  # fixed, so evaluations across iterations are paired
 
@@ -191,21 +233,27 @@ def _train_loop(cfg, run_dir, device, rng, nets, opts, rollout_nets, learners, f
             else:
                 games = [AvalonGame(rng, comm=cfg.comm) for _ in range(cfg.games_per_iter)]
                 specs, modes = sample_matchups(len(games), pool_sizes, probs, rng)
+                seats = partner_seats(games, specs, rng, partner, cfg.opponents.partner_max)
                 recorder = TrajectoryRecorder()
                 play(games, [resolve(g, "good", learners, pool, rule) for g, _ in specs],
-                     [resolve(e, "evil", learners, pool, rule) for _, e in specs], rng, on_decision=recorder)
+                     [resolve(e, "evil", learners, pool, rule) for _, e in specs], rng, on_decision=recorder,
+                     seat_ctrls=seats, seat_speakers=teacher_seats(cfg, seats, rng))
                 batches = recorder.build(games, cfg.ppo.gamma, cfg.ppo.gae_lambda)
                 outcomes = [game_outcome(g) for g in games]
             t1 = time.perf_counter()
 
             entry: dict = {}
+            kl_coef = msg_kl_coef(cfg, iteration) if anchors else 0.0
+            if anchors:
+                entry["msg_kl_coef"] = round(kl_coef, 6)
             for t in TEAMS:
                 if len(batches[t]):
-                    stats = ppo_update(nets[t], opts[t], batches[t], cfg.ppo, device, rng)
+                    stats = ppo_update(nets[t], opts[t], batches[t], cfg.ppo, device, rng,
+                                       ref_net=anchors[t] if anchors else None, msg_kl_coef=kl_coef)
                     entry.update({f"{t}/{k}": v for k, v in stats.items()})
                     entry.update({f"{t}/says_{k}": v for k, v in message_usage(batches[t]).items()})
                 if rollout_nets[t] is not nets[t]:
-                    rollout_nets[t].load_state_dict(nets[t].state_dict())
+                    rollout_nets[t].load_state_dict({k: v.cpu() for k, v in plain_state_dict(nets[t]).items()})
             if workers:
                 workers.set_weights(nets)
             t2 = time.perf_counter()
@@ -213,6 +261,7 @@ def _train_loop(cfg, run_dir, device, rng, nets, opts, rollout_nets, learners, f
             games_seen += len(specs)
 
             self_games = [o for o, m in zip(outcomes, modes) if m == "self"]
+            partner_games = [o for o, m in zip(outcomes, modes) if m == "partner"]
             entry = {
                 "iteration": iteration,
                 "games": games_seen,
@@ -221,6 +270,7 @@ def _train_loop(cfg, run_dir, device, rng, nets, opts, rollout_nets, learners, f
                 "decisions": int(sum(len(b) for b in batches.values())),
                 "modes": {m: modes.count(m) for m in MODES},
                 "selfplay": summarize(self_games) if self_games else None,
+                **({"partner": summarize(partner_games)} if partner_games else {}),
                 **entry,
             }
             if iteration % cfg.opponents.snapshot_every == 0:
@@ -239,10 +289,12 @@ def _train_loop(cfg, run_dir, device, rng, nets, opts, rollout_nets, learners, f
             if iteration % cfg.checkpoint_every == 0 or iteration == n_iters:
                 state = dict(
                     iteration=iteration, games_seen=games_seen, config=config_to_dict(cfg),
-                    nets={t: nets[t].state_dict() for t in TEAMS},
+                    nets={t: plain_state_dict(nets[t]) for t in TEAMS},  # merged weights: every tool reads these
                     optimizers={t: opts[t].state_dict() for t in TEAMS},
                     numpy_rng=rng.bit_generator.state, torch_rng=torch.get_rng_state(),
                 )
+                if cfg.adapt.lora_rank > 0:
+                    state["adapter"] = {t: adapter_state(nets[t]) for t in TEAMS}
                 save_checkpoint(run_dir / f"checkpoint_{iteration:05d}.pt", **state)
                 save_checkpoint(latest, **state)
             log.write(json.dumps(entry) + "\n")
@@ -251,6 +303,8 @@ def _train_loop(cfg, run_dir, device, rng, nets, opts, rollout_nets, learners, f
             line = f"iter {iteration}/{n_iters} games {games_seen} collect {t1 - t0:.1f}s update {t2 - t1:.1f}s"
             if entry["selfplay"]:
                 line += f" | self-play good win {_rate(entry['selfplay']):.3f}"
+            if partner_games:
+                line += f" | partner games good win {_rate(entry['partner']):.3f}"
             if "eval" in entry:
                 line += (f" | good-vs-rule {_rate(entry['eval']['policy_good_vs_rule_evil']):.3f}"
                          f" evil-vs-rule {1 - _rate(entry['eval']['rule_good_vs_policy_evil']):.3f}")

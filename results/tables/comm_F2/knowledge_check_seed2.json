@@ -1,0 +1,50 @@
+{
+ "checkpoint": "runs/comm_F2/stage3b_F/seed2/checkpoint_01000.pt",
+ "games": 300,
+ "free_good_votes_on_team_with_deduced_evil": 4,
+ "of_those_approved": 0.0,
+ "merlin/L": {
+  "accusations": 75,
+  "accusations_wrong": 0.0,
+  "accusations_of_deduced_good": 0.0,
+  "vouches": 78,
+  "vouches_wrong": 0.038,
+  "vouches_for_deduced_evil": 0.0,
+  "messages_when_knowing_an_evil": 38,
+  "of_those_accusing_a_known_evil": 0.632,
+  "suggestion_has_known_evil": 0.356
+ },
+ "merlin/T": {
+  "accusations": 47,
+  "accusations_wrong": 0.0,
+  "accusations_of_deduced_good": 0.0,
+  "vouches": 149,
+  "vouches_wrong": 0.04,
+  "vouches_for_deduced_evil": 0.0,
+  "messages_when_knowing_an_evil": 38,
+  "of_those_accusing_a_known_evil": 1.0,
+  "suggestion_has_known_evil": 0.319
+ },
+ "other_good/L": {
+  "accusations": 188,
+  "accusations_wrong": 0.271,
+  "accusations_of_deduced_good": 0.005,
+  "vouches": 298,
+  "vouches_wrong": 0.185,
+  "vouches_for_deduced_evil": 0.0,
+  "messages_when_knowing_an_evil": 106,
+  "of_those_accusing_a_known_evil": 0.406,
+  "suggestion_has_known_evil": 0.0
+ },
+ "other_good/T": {
+  "accusations": 155,
+  "accusations_wrong": 0.142,
+  "accusations_of_deduced_good": 0.0,
+  "vouches": 690,
+  "vouches_wrong": 0.196,
+  "vouches_for_deduced_evil": 0.0,
+  "messages_when_knowing_an_evil": 106,
+  "of_those_accusing_a_known_evil": 1.0,
+  "suggestion_has_known_evil": 0.0
+ }
+}

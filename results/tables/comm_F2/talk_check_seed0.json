@@ -1,0 +1,95 @@
+{
+ "checkpoint": "runs/comm_F2/stage3b_F/seed0/checkpoint_01000.pt",
+ "games": 500,
+ "good_win": 0.476,
+ "good": {
+  "messages": 8256,
+  "L": {
+   "suggest_rate": 1.0,
+   "with_self": 1.0,
+   "has_other_evil": 0.511,
+   "has_certain_evil": 0.0,
+   "mean_suspicion": 0.173,
+   "accuse_per_msg": 0.037,
+   "accuse_right": 0.836,
+   "vouch_per_msg": 0.116,
+   "vouch_right": 0.851,
+   "veto_per_msg": 0.009,
+   "veto_right": 0.959,
+   "require_per_msg": 0.03,
+   "require_right": 0.911
+  },
+  "T": {
+   "suggest_rate": 0.999,
+   "with_self": 1.0,
+   "has_other_evil": 0.473,
+   "has_certain_evil": 0.0,
+   "mean_suspicion": 0.069,
+   "accuse_per_msg": 0.047,
+   "accuse_right": 0.829,
+   "vouch_per_msg": 0.232,
+   "vouch_right": 0.915,
+   "veto_per_msg": 0.018,
+   "veto_right": 1.0,
+   "require_per_msg": 0.059,
+   "require_right": 1.0
+  },
+  "chance_has_other_evil": 0.693,
+  "same_team_as_teacher": 0.409,
+  "learned_repeats_teacher": {
+   "evil": 0.132,
+   "good": 0.218
+  },
+  "teacher_agrees_with_learned": {
+   "evil": 0.167,
+   "good": 0.434
+  }
+ },
+ "evil": {
+  "messages": 4128,
+  "L": {
+   "suggest_rate": 1.0,
+   "with_self": 1.0,
+   "has_other_evil": 0.157,
+   "has_certain_evil": 0.001,
+   "mean_suspicion": 0.268,
+   "accuse_per_msg": 0.037,
+   "accuse_right": 0.026,
+   "vouch_per_msg": 0.15,
+   "vouch_right": 0.974,
+   "veto_per_msg": 0.017,
+   "veto_right": 0.029,
+   "require_per_msg": 0.052,
+   "require_right": 0.963
+  },
+  "T": {
+   "suggest_rate": 1.0,
+   "with_self": 1.0,
+   "has_other_evil": 0.05,
+   "has_certain_evil": 0.0,
+   "mean_suspicion": 0.18,
+   "accuse_per_msg": 0.032,
+   "accuse_right": 0.0,
+   "vouch_per_msg": 0.232,
+   "vouch_right": 0.994,
+   "veto_per_msg": 0.017,
+   "veto_right": 0.0,
+   "require_per_msg": 0.066,
+   "require_right": 1.0
+  },
+  "chance_has_other_evil": 0.414,
+  "same_team_as_teacher": 0.461,
+  "learned_repeats_teacher": {
+   "evil": 0.068,
+   "good": 0.331
+  },
+  "teacher_agrees_with_learned": {
+   "evil": 0.059,
+   "good": 0.512
+  }
+ },
+ "merlin_suggestion_has_evil": {
+  "L": 0.366,
+  "T": 0.275
+ }
+}

@@ -8,7 +8,8 @@ from ..agents.policy import ActorCritic, PolicyController
 
 
 class OpponentPool:
-    def __init__(self, capacity: int):
+    def __init__(self, capacity: int, speakers: dict[str, PolicyController] | None = None):
+        self.speakers = speakers or {}  # listener stage: snapshots speak through the frozen speaker too
         self.snapshots: dict[str, deque[PolicyController]] = {
             "good": deque(maxlen=capacity), "evil": deque(maxlen=capacity),
         }
@@ -17,7 +18,7 @@ class OpponentPool:
         frozen = copy.deepcopy(net).to("cpu").eval()
         for p in frozen.parameters():
             p.requires_grad_(False)
-        self.snapshots[team].append(PolicyController(frozen, learn=False))
+        self.snapshots[team].append(PolicyController(frozen, learn=False, speaker=self.speakers.get(team)))
 
     def __len__(self) -> int:
         return sum(len(v) for v in self.snapshots.values())

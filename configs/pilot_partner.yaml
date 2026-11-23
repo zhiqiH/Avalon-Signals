@@ -1,0 +1,50 @@
+# Pilot: does training with logic partners break S's reject-until-the-fifth-proposal habit?
+# Identical to the silent-LoRA control (runs/pilot_comm/silent_lora: LoRA rank 8 from the frozen S,
+# 1300 iterations) except that a quarter of the games, taken from self-play, are partner games:
+# one or two Servant/Percival seats are played by the logic partner (src/agents/logic_agent.py).
+name: partner_lora
+seed: 0
+device: auto
+total_games: 665600
+games_per_iter: 512
+checkpoint_every: 20
+workers: 16
+out_dir: runs/pilot_partner
+init_from: baseline/seed{seed}/checkpoint_19532.pt
+resume: true
+
+model:
+  hidden_sizes: [256, 256]
+  deduction: true
+
+ppo:
+  lr: 3.0e-4
+  epochs: 4
+  minibatch_size: 2048
+  clip_coef: 0.2
+  vf_coef: 0.5
+  ent_coef: 0.01
+  max_grad_norm: 0.5
+  gamma: 1.0
+  gae_lambda: 0.95
+  norm_adv: true
+
+opponents:
+  p_self: 0.25
+  p_pool: 0.25
+  p_rule: 0.25
+  p_partner: 0.25
+  partner_max: 2
+  partner_slack: 0.1
+  snapshot_every: 10
+  pool_size: 20
+  rule_fail_prob: 0.9
+  rule_merlin_knowledge_prob: 0.5
+
+eval:
+  every: 20
+  games: 512
+
+adapt:
+  lora_rank: 8
+  lora_scale: 1.0

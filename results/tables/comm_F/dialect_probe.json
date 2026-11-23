@@ -1,0 +1,293 @@
+{
+ "runs/comm_F/stage3b_F/seed0/checkpoint_01000.pt": {
+  "games": 2000,
+  "good_win": 0.4685,
+  "all": {
+   "form": {
+    "info_gain_nats": 0.0017,
+    "accuracy": 0.666,
+    "messages": 52806
+   },
+   "full": {
+    "info_gain_nats": 0.0184,
+    "accuracy": 0.679,
+    "messages": 52806
+   }
+  },
+  "first": {
+   "form": {
+    "info_gain_nats": -0.0,
+    "accuracy": 0.667,
+    "messages": 12000
+   },
+   "full": {
+    "info_gain_nats": 0.0173,
+    "accuracy": 0.681,
+    "messages": 12000
+   }
+  },
+  "says": {
+   "servant": {
+    "accusations_per_message": 0.115,
+    "accusations_right": 0.848,
+    "endorsements_per_message": 0.129,
+    "endorsements_right": 0.85
+   },
+   "merlin": {
+    "accusations_per_message": 0.136,
+    "accusations_right": 1.0,
+    "endorsements_per_message": 0.167,
+    "endorsements_right": 0.961
+   },
+   "percival": {
+    "accusations_per_message": 0.111,
+    "accusations_right": 0.878,
+    "endorsements_per_message": 0.163,
+    "endorsements_right": 0.822
+   },
+   "morgana": {
+    "accusations_per_message": 0.156,
+    "accusations_right": 0.032,
+    "endorsements_per_message": 0.185,
+    "endorsements_right": 0.956
+   },
+   "assassin": {
+    "accusations_per_message": 0.145,
+    "accusations_right": 0.028,
+    "endorsements_per_message": 0.2,
+    "endorsements_right": 0.963
+   }
+  },
+  "audit_per_game": {
+   "servant": {
+    "judge": 0.0,
+    "intent": 0.0,
+    "team": 0.0,
+    "vouch": 0.261,
+    "any": 0.189
+   },
+   "merlin": {
+    "judge": 0.0,
+    "intent": 0.0,
+    "team": 0.0,
+    "vouch": 0.292,
+    "any": 0.209
+   },
+   "percival": {
+    "judge": 0.0,
+    "intent": 0.0,
+    "team": 0.0,
+    "vouch": 0.343,
+    "any": 0.237
+   },
+   "morgana": {
+    "judge": 0.0,
+    "intent": 0.0,
+    "team": 0.0,
+    "vouch": 0.321,
+    "any": 0.228
+   },
+   "assassin": {
+    "judge": 0.0,
+    "intent": 0.0,
+    "team": 0.0,
+    "vouch": 0.332,
+    "any": 0.23
+   }
+  }
+ },
+ "runs/comm_F/stage3b_F/seed1/checkpoint_01000.pt": {
+  "games": 2000,
+  "good_win": 0.4685,
+  "all": {
+   "form": {
+    "info_gain_nats": 0.0019,
+    "accuracy": 0.667,
+    "messages": 51678
+   },
+   "full": {
+    "info_gain_nats": 0.0261,
+    "accuracy": 0.683,
+    "messages": 51678
+   }
+  },
+  "first": {
+   "form": {
+    "info_gain_nats": -0.0,
+    "accuracy": 0.667,
+    "messages": 12000
+   },
+   "full": {
+    "info_gain_nats": 0.0154,
+    "accuracy": 0.675,
+    "messages": 12000
+   }
+  },
+  "says": {
+   "servant": {
+    "accusations_per_message": 0.048,
+    "accusations_right": 0.829,
+    "endorsements_per_message": 0.103,
+    "endorsements_right": 0.837
+   },
+   "merlin": {
+    "accusations_per_message": 0.066,
+    "accusations_right": 1.0,
+    "endorsements_per_message": 0.141,
+    "endorsements_right": 0.94
+   },
+   "percival": {
+    "accusations_per_message": 0.054,
+    "accusations_right": 0.854,
+    "endorsements_per_message": 0.135,
+    "endorsements_right": 0.809
+   },
+   "morgana": {
+    "accusations_per_message": 0.078,
+    "accusations_right": 0.018,
+    "endorsements_per_message": 0.133,
+    "endorsements_right": 0.948
+   },
+   "assassin": {
+    "accusations_per_message": 0.076,
+    "accusations_right": 0.021,
+    "endorsements_per_message": 0.137,
+    "endorsements_right": 0.951
+   }
+  },
+  "audit_per_game": {
+   "servant": {
+    "judge": 0.0,
+    "intent": 0.0,
+    "team": 0.0,
+    "vouch": 0.264,
+    "any": 0.188
+   },
+   "merlin": {
+    "judge": 0.0,
+    "intent": 0.0,
+    "team": 0.0,
+    "vouch": 0.319,
+    "any": 0.226
+   },
+   "percival": {
+    "judge": 0.0,
+    "intent": 0.0,
+    "team": 0.0,
+    "vouch": 0.341,
+    "any": 0.235
+   },
+   "morgana": {
+    "judge": 0.0,
+    "intent": 0.0,
+    "team": 0.0,
+    "vouch": 0.301,
+    "any": 0.207
+   },
+   "assassin": {
+    "judge": 0.0,
+    "intent": 0.0,
+    "team": 0.0,
+    "vouch": 0.292,
+    "any": 0.209
+   }
+  }
+ },
+ "runs/comm_F/stage3b_F/seed2/checkpoint_01000.pt": {
+  "games": 2000,
+  "good_win": 0.491,
+  "all": {
+   "form": {
+    "info_gain_nats": 0.0013,
+    "accuracy": 0.666,
+    "messages": 51684
+   },
+   "full": {
+    "info_gain_nats": 0.0203,
+    "accuracy": 0.676,
+    "messages": 51684
+   }
+  },
+  "first": {
+   "form": {
+    "info_gain_nats": -0.0,
+    "accuracy": 0.667,
+    "messages": 12000
+   },
+   "full": {
+    "info_gain_nats": 0.0157,
+    "accuracy": 0.685,
+    "messages": 12000
+   }
+  },
+  "says": {
+   "servant": {
+    "accusations_per_message": 0.107,
+    "accusations_right": 0.905,
+    "endorsements_per_message": 0.112,
+    "endorsements_right": 0.882
+   },
+   "merlin": {
+    "accusations_per_message": 0.105,
+    "accusations_right": 1.0,
+    "endorsements_per_message": 0.138,
+    "endorsements_right": 0.978
+   },
+   "percival": {
+    "accusations_per_message": 0.104,
+    "accusations_right": 0.902,
+    "endorsements_per_message": 0.161,
+    "endorsements_right": 0.867
+   },
+   "morgana": {
+    "accusations_per_message": 0.152,
+    "accusations_right": 0.013,
+    "endorsements_per_message": 0.166,
+    "endorsements_right": 0.955
+   },
+   "assassin": {
+    "accusations_per_message": 0.096,
+    "accusations_right": 0.019,
+    "endorsements_per_message": 0.171,
+    "endorsements_right": 0.959
+   }
+  },
+  "audit_per_game": {
+   "servant": {
+    "judge": 0.0,
+    "intent": 0.0,
+    "team": 0.0,
+    "vouch": 0.278,
+    "any": 0.197
+   },
+   "merlin": {
+    "judge": 0.0,
+    "intent": 0.0,
+    "team": 0.0,
+    "vouch": 0.302,
+    "any": 0.216
+   },
+   "percival": {
+    "judge": 0.0,
+    "intent": 0.0,
+    "team": 0.0,
+    "vouch": 0.393,
+    "any": 0.265
+   },
+   "morgana": {
+    "judge": 0.0,
+    "intent": 0.0,
+    "team": 0.0,
+    "vouch": 0.391,
+    "any": 0.257
+   },
+   "assassin": {
+    "judge": 0.0,
+    "intent": 0.0,
+    "team": 0.0,
+    "vouch": 0.379,
+    "any": 0.253
+   }
+  }
+ }
+}

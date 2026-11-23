@@ -14,35 +14,37 @@ Evil players: propose themselves plus innocent-looking good players; approve tea
 member; reject the fifth proposal unless it contains evil; fail quests with probability
 `fail_prob`, only one of them failing when both are on the team.
 Assassin: targets the good player whose votes best tracked which teams contained evil.
-In discussions, rule players say nothing and ignore messages.
+In discussions, rule players say nothing. They do not read what is said, but they hold players to it:
+whoever acted against its own words (the public audit, `comm.protocol.AUDIT`) is suspected.
+Where the rule teacher speaks for a rule player's seat, its words bind the seat like anyone's: the player then
+takes the closest choice its words allow.
 """
 from __future__ import annotations
 
 import numpy as np
 
-from ..comm.protocol import sample_messages, stack_contexts
+from ..comm.protocol import TEAM_MEMBERS, public_suspicion, sample_messages, stack_contexts  # noqa: F401
+from ..comm.protocol import BROKEN_WORD, FAILED_VOUCH  # noqa: F401  (the score itself lives with the protocol)
 from ..env import actions as A
 from ..env.game import AvalonGame
 from ..env.rules import MAX_PROPOSALS, N_PLAYERS, N_QUESTS, Phase, Role
 from .base import ActResult, Request
 
 
-def public_suspicion(game: AvalonGame) -> np.ndarray:
-    """Suspicion per absolute seat computed from public quest and vote records only."""
-    s = np.zeros(N_PLAYERS)
-    for q in range(N_QUESTS):
-        if game.quest_result[q] < 0:
-            continue
-        team = game.quest_team[q]
-        approved_attempt = int(np.flatnonzero(game.prop_approved[q])[0])
-        approvers = game.prop_votes[q, approved_attempt]
-        if game.quest_result[q] == 1:
-            s[team] += 2.0 * game.quest_fails[q] / team.sum()
-            s[approvers & ~team] += 0.3
-        else:
-            s[team] -= 0.5
-            s[~approvers] += 0.5  # rejecting a team that turned out clean
-    return s
+
+def best_team(game: AvalonGame, player: int, cost: np.ndarray) -> int:
+    """Action proposing the legal team of the current size with the lowest total cost over absolute seats."""
+    n = len(A.TEAMS_BY_SIZE[game.team_size])
+    members = TEAM_MEMBERS[game.team_size][1:1 + n]  # relative frame
+    total = (members * np.clip(cost, -1e6, 1e6)[(player + np.arange(N_PLAYERS)) % N_PLAYERS]).sum(axis=1)
+    total[~game.legal_mask(player)[A.TEAM_OFFSET:A.TEAM_OFFSET + n]] = np.inf
+    return A.TEAM_OFFSET + int(np.argmin(total))
+
+
+def allowed(game: AvalonGame, player: int, action: int) -> int:
+    """`action` if it is legal, else the first legal action (a vote the player's own words force)."""
+    mask = game.legal_mask(player)
+    return int(action) if mask[action] else int(np.flatnonzero(mask)[0])
 
 
 class RuleController:
@@ -53,7 +55,8 @@ class RuleController:
         self.merlin_knowledge_prob = merlin_knowledge_prob
 
     def act(self, requests: list[Request], rng: np.random.Generator) -> ActResult:
-        return ActResult(np.array([self._act(r.game, r.player, rng) for r in requests], dtype=np.int64))
+        actions = [self._act(r.game, r.player, rng) for r in requests]
+        return ActResult(np.array([allowed(r.game, r.player, a) for r, a in zip(requests, actions)], dtype=np.int64))
 
     def speak(self, requests: list[Request], rng: np.random.Generator) -> ActResult:
         return ActResult(messages=sample_messages(stack_contexts([r.ctx for r in requests]), rng, first=True))
@@ -102,8 +105,7 @@ class RuleController:
             s[player] = -np.inf
         else:
             s = self._suspicion(game, player, rng, self._merlin_uses_knowledge(game, player, rng))
-        team = np.argsort(s)[:k]
-        return A.team_action(player, team)
+        return best_team(game, player, s)
 
     def _vote(self, game: AvalonGame, player: int, rng: np.random.Generator) -> int:
         team = game.team
