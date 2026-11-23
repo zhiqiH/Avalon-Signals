@@ -43,8 +43,10 @@ class AvalonGame:
     word_binding = True
     # Seats the word rules do not bind (a human at the table; set on the instance): their messages need not follow
     # the message rules and their words do not limit their actions. What they do against their words is counted
-    # in the public audit like anyone's would be without the binding. The vote guard still holds for them.
+    # in the public audit like anyone's would be without the binding. The vote guard still holds for them,
+    # unless they are also listed in `unguarded_seats` (a human may make a losing vote).
     free_seats: frozenset = frozenset()
+    unguarded_seats: frozenset = frozenset()
 
     def __init__(self, rng: np.random.Generator | None = None, comm: P.CommConfig | None = None):
         self.comm = comm if comm is not None else P.CommConfig()
@@ -150,7 +152,7 @@ class AvalonGame:
             word = P.word_vote(self, player) if bound else None
             mask[A.REJECT] = word is not True
             mask[A.APPROVE] = word is not False
-            if self.good_guard and not self.is_evil_seat(player):
+            if self.good_guard and not self.is_evil_seat(player) and player not in self.unguarded_seats:
                 if self.attempt == MAX_PROPOSALS - 1:
                     mask[A.APPROVE], mask[A.REJECT] = True, False
                 elif self.fails == WINS_NEEDED - 1 and self.certainly_dirty(player):
@@ -171,7 +173,8 @@ class AvalonGame:
         from .observation import _PAIR_MEMBERS, possible_evil_pairs  # observation imports this module
 
         n = len(A.TEAMS_BY_SIZE[self.team_size])
-        if not self.good_guard or self.is_evil_seat(player) or self.fails != WINS_NEEDED - 1:
+        if (not self.good_guard or self.is_evil_seat(player) or player in self.unguarded_seats
+                or self.fails != WINS_NEEDED - 1):
             return np.zeros(n, dtype=bool)
         teams = np.zeros((n, N_PLAYERS), dtype=bool)
         teams[:, (player + np.arange(N_PLAYERS)) % N_PLAYERS] = P.TEAM_MEMBERS[self.team_size][1:1 + n]
