@@ -157,3 +157,10 @@ def test_guard_applies_only_at_two_fails_and_can_be_lifted():
         vote(game, [])
     propose(game, [0, 1])
     assert game.legal_mask(0)[A.REJECT]
+    game = make_game()
+    game.unguarded_seats = frozenset({1})  # a human in seat 1 may reject the fifth proposal; the others may not
+    for _ in range(4):
+        propose(game, [0, 1])
+        vote(game, [])
+    propose(game, [0, 1])
+    assert game.legal_mask(1)[A.REJECT] and not game.legal_mask(0)[A.REJECT]
