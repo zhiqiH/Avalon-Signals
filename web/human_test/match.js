@@ -1,12 +1,15 @@
 'use strict';
-// Human test, match mode: one human against five frozen baseline players. Text comes from i18n.js.
+// Human test, match mode: one human and five frozen AI players, silent or talking. Text comes from i18n.js.
 const $ = id => document.getElementById(id);
 const T = I18N.t;
 const BASE = '/match';
 const SIZES = [2, 3, 4, 3, 4];
 const CROWN = '<svg viewBox="0 0 16 16"><path d="M2 12.5h12l1-7.5-4 3-3-5.5-3 5.5-4-3z"/></svg>';
 let S = {active: false}, sel = new Set(), busy = false, timer = null;
-const setup = {role: 'random', seat: 1, baseline: 0, share: null};
+const setup = {role: 'random', seat: 1, baseline: 0, share: null, mode: 'talk'};
+// What the visitor is about to say (a stance, see scripts/human_test_talk.py); the suggested team is `sel`.
+let draft = newDraft();
+function newDraft() { return {claim: null, judge: {}, veto: [], require: [], ignored: [], text: '', typed: false}; }
 
 function pref(key, fallback) { try { const v = localStorage.getItem(key); return v === null ? fallback : v; } catch (e) { return fallback; } }
 function setPref(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
@@ -24,15 +27,57 @@ async function move(action) {
   busy = true; showErr('');
   try {
     S = await api(action === null ? '/api/advance' : '/api/action', {id: S.id, revision: S.revision, ...(action === null ? {} : {action})});
-    sel.clear(); render();
+    sel.clear(); draft = newDraft(); render();
+  } catch (e) { showErr(e.message); } finally { busy = false; }
+}
+
+async function speak(stance) {
+  if (busy) return;
+  busy = true; showErr('');
+  try {
+    S = await api('/api/speak', {id: S.id, revision: S.revision, stance, typed: draft.typed});
+    sel.clear(); draft = newDraft(); render();
+  } catch (e) { showErr(e.message); } finally { busy = false; }
+}
+async function parseText() {
+  if (busy || !draft.text.trim()) return;
+  busy = true; showErr('');
+  try {
+    const r = await api('/api/parse', {text: draft.text});
+    Object.assign(draft, {claim: r.stance.claim, judge: r.stance.judge, veto: r.stance.veto, require: r.stance.require, ignored: r.ignored, typed: true});
+    sel = new Set(r.stance.team || []);
+    render();
   } catch (e) { showErr(e.message); } finally { busy = false; }
 }
 
 const isEvilRole = k => k === 'MORGANA' || k === 'ASSASSIN';
+const talking = () => S.active && !S.done && (S.phase === 'DISCUSS' || S.phase === 'EVIL_DISCUSS');
+const suggesting = () => S.active && !S.done && S.phase === 'DISCUSS' && S.human_turn && S.human !== S.leader;
+
+// A message (the agents' or the visitor's draft) as one sentence in the page language.
+function sentence(m) {
+  const zh = I18N.lang === 'zh', parts = [];
+  if (m.claim) parts.push(T('s.claim.' + m.claim));
+  for (const j of m.judge || []) {
+    const what = j.judgment === 'good' || j.judgment === 'evil' ? T('side.' + j.judgment) : I18N.role(j.judgment.toUpperCase());
+    const basis = j.basis === 'role_knowledge' ? T('s.sight') : j.basis && j.quest ? T('s.basis', {q: j.quest, k: T('basis.' + j.basis)}) : '';
+    parts.push(T('s.judge', {n: j.seat, j: zh || !['good', 'evil'].includes(j.judgment) ? what : what.toLowerCase()}) + basis);
+  }
+  if (m.team && m.team.length) parts.push(T('s.team', {team: I18N.seats(m.team)}));
+  for (const n of m.veto || []) parts.push(T('s.veto', {n}));
+  for (const n of m.require || []) parts.push(T('s.require', {n}));
+  return parts.length ? parts.join(zh ? '；' : '; ') : T('s.none');
+}
+function draftStance() {
+  const team = suggesting() && sel.size === S.team_size ? [...sel].sort((a, b) => a - b) : null;
+  return {claim: draft.claim, judge: draft.judge, team, veto: draft.veto, require: draft.require};
+}
+const draftMessage = () => ({...draftStance(), judge: Object.entries(draft.judge).map(([seat, judgment]) => ({seat: +seat, judgment}))});
+
 const pos = s => (S.active ? (s - S.human + 6) % 6 : s - 1);  // your seat sits at the bottom of the table
 function canPick(s) {
   if (!S.active || !S.human_turn || S.done) return false;
-  return S.phase === 'PROPOSE' || (S.phase === 'ASSASSINATE' && S.options.some(o => o.target === s));
+  return S.phase === 'PROPOSE' || suggesting() || (S.phase === 'ASSASSINATE' && S.options.some(o => o.target === s));
 }
 
 function renderTrack() {
@@ -48,7 +93,7 @@ function renderTrack() {
 function renderRing() {
   const ring = $('ring');
   ring.querySelectorAll('.seat').forEach(n => n.remove());
-  const leading = S.active && !S.done && ['PROPOSE', 'VOTE', 'QUEST'].includes(S.phase);
+  const leading = S.active && !S.done && ['DISCUSS', 'PROPOSE', 'VOTE', 'QUEST'].includes(S.phase);
   for (let s = 1; s <= 6; s++) {
     const you = S.active && s === S.human;
     const knownEvil = S.active && S.known_evil.includes(s) && !you;
@@ -60,11 +105,14 @@ function renderRing() {
     if (S.active && S.team.includes(s)) b.classList.add('team');
     if (sel.has(s)) b.classList.add('sel');
     if (canPick(s)) b.classList.add('pick');
+    if (talking() && s === S.speaker) b.classList.add('speaking');
     if (knownEvil || (roleKey && isEvilRole(roleKey))) b.classList.add('evil');
     let badges = '';
     if (leading && s === S.leader) badges += `<span class="badge tl lead">${CROWN}</span>`;
     if (S.active && S.event.kind === 'vote') badges += S.event.votes[s - 1] ? '<span class="badge tr yes">✓</span>' : '<span class="badge tr no">✗</span>';
     if (S.done && S.event.kind === 'assassination' && S.event.target === s) badges += '<span class="badge br dot">†</span>';
+    const broken = S.active && S.broken_words ? S.broken_words[s - 1] : 0;
+    if (broken) badges += `<span class="badge bl warn" title="${T('broken', {n: broken})}">!${broken}</span>`;
     let cap = you ? T('you') : 'AI', capCls = '';
     if (roleKey) { cap = I18N.role(roleKey) + (you ? ` · ${T('you')}` : ''); capCls = isEvilRole(roleKey) ? 'evil' : 'good'; }
     else if (knownEvil) { cap = T('side.evil'); capCls = 'evil'; }
@@ -88,7 +136,8 @@ function renderCenter() {
     big = T(S.result.good_won ? 'win.good' : 'win.evil');
     sub = `${T('reason.' + S.result.reason_key)} · ${T(S.result.human_won ? 'won' : 'lost')}`;
   } else if (S.active) {
-    big = S.phase === 'ASSASSINATE' ? T('whoMerlin') : T('quest', {q: S.quest});
+    big = S.phase === 'ASSASSINATE' ? T('whoMerlin') : S.phase === 'EVIL_DISCUSS' ? T('evilTalk') : T('quest', {q: S.quest});
+    if (talking()) sub = S.human_turn ? T('yourTalk') : T('talkingNow', {n: S.speaker});
     if (S.phase === 'PROPOSE') sub = S.human_turn ? T('picked', {k: sel.size, n: S.team_size}) : T('leaderPicks', {n: S.leader});
     else if (S.phase === 'VOTE') sub = S.attempt === 5 ? T('lastTry') : T('voteTeam');
     else if (S.phase === 'QUEST') sub = S.human_turn ? T('playCard') : T('questOn');
@@ -100,6 +149,7 @@ function renderCenter() {
   line.className = 'event';
   if (!ev) { line.textContent = ''; return; }
   if (ev.kind === 'start') line.textContent = T('ev.start');
+  else if (ev.kind === 'speech') line.textContent = `${who(ev.message.speaker)}${I18N.lang === 'zh' ? '：' : ': '}${sentence(ev.message)}`;
   else if (ev.kind === 'proposal') line.textContent = T('ev.proposal', {l: ev.leader, team: I18N.seats(ev.team || [])});
   else if (ev.kind === 'vote') {
     const y = ev.votes.filter(Boolean).length;
@@ -111,6 +161,7 @@ function renderCenter() {
   } else if (ev.kind === 'assassination') line.textContent = T('ev.assn', {n: ev.target});
 }
 
+const who = s => (S.active && s === S.human ? T('you') : T('seat', {n: s}));
 function btn(label, cls, onClick, disabled = false) {
   const b = el('button', `btn ${cls}`); b.type = 'button'; b.textContent = label; b.disabled = disabled;
   b.addEventListener('click', onClick); return b;
@@ -123,9 +174,12 @@ function renderDock() {
   if (S.done) { dock.append(btn(T('again'), 'primary wide', openSetup), btn(T('replay'), 'ghost', downloadReplay)); return; }
   if (!S.human_turn) {
     dock.append(btn(T('continue') + ' →', 'primary wide', () => move(null)));
-    if ($('auto').checked) timer = setTimeout(() => { timer = null; if (!busy && !$('setup').open) move(null); }, 1500);
+    // Speech needs time to be read: the pause grows with the sentence just shown.
+    const pause = S.event.kind === 'speech' ? Math.min(6000, 1600 + 70 * sentence(S.event.message).length) : 1500;
+    if ($('auto').checked) timer = setTimeout(() => { timer = null; if (!busy && !$('setup').open) move(null); }, pause);
     return;
   }
+  if (talking()) { composer(dock); return; }
   const kind = k => S.options.find(o => o.kind === k);
   if (S.phase === 'PROPOSE') {
     const team = [...sel].sort((a, b) => a - b);
@@ -141,6 +195,81 @@ function renderDock() {
     const target = [...sel][0], opt = S.options.find(o => o.target === target);
     dock.append(btn(target ? T('kill', {n: target}) : T('pickTarget'), 'evil wide', () => move(opt.action), !opt));
   }
+}
+
+// The visitor's turn to speak: type a sentence or set the stance by hand; the preview is what the agents hear.
+function cycle(label, value, states, onChange) {
+  const i = states.findIndex(st => st[0] === value), c = el('button', `chip sm ${states[i][2] || ''}`);
+  c.type = 'button'; c.textContent = label + (states[i][1] ? ' · ' + states[i][1] : '');
+  c.setAttribute('aria-pressed', String(i > 0));
+  c.addEventListener('click', () => { onChange(states[(i + 1) % states.length][0]); draft.typed = false; render(); });
+  return c;
+}
+function composer(dock) {
+  const evilTalk = S.phase === 'EVIL_DISCUSS', box = el('div', 'composer');
+  const form = el('form', 'say'), input = el('input', 'input');
+  input.placeholder = T(evilTalk ? 'say.phEvil' : 'say.ph'); input.maxLength = 300; input.value = draft.text; input.autocomplete = 'off';
+  input.addEventListener('input', () => { draft.text = input.value; });
+  const go = el('button', 'btn slim'); go.type = 'submit'; go.textContent = T('say.parse');
+  form.append(input, go);
+  form.addEventListener('submit', e => { e.preventDefault(); parseText(); });
+  box.append(form);
+  if (!evilTalk) {
+    const claims = el('div', 'chips');
+    for (const [value, label] of [[null, T('say.noClaim')], ['servant', I18N.role('SERVANT')], ['percival', I18N.role('PERCIVAL')]]) {
+      const c = el('button', 'chip sm'); c.type = 'button'; c.textContent = value ? T('s.claim.' + value) : label;
+      c.setAttribute('aria-pressed', String(draft.claim === value));
+      c.addEventListener('click', () => { draft.claim = value; draft.typed = false; render(); });
+      claims.append(c);
+    }
+    box.append(claims);
+  }
+  const judgeStates = evilTalk
+    ? [[undefined, ''], ['merlin', I18N.role('MERLIN'), 'evil'], ['percival', I18N.role('PERCIVAL')], ['servant', I18N.role('SERVANT')]]
+    : [[undefined, ''], ['good', T('side.good'), 'good'], ['evil', T('side.evil'), 'evil']];
+  const intentStates = [['', T('say.anyTeam')], ['veto', T('say.veto'), 'evil'], ['require', T('say.require'), 'good']];
+  const rows = el('div', 'stances');
+  for (let s = 1; s <= 6; s++) {
+    if (s === S.human || (evilTalk && S.known_evil.includes(s))) continue;
+    const row = el('div', 'stance');
+    row.append(cycle(T('seat', {n: s}), draft.judge[s], judgeStates, v => { if (v) draft.judge[s] = v; else delete draft.judge[s]; }));
+    if (!evilTalk) {
+      const intent = draft.veto.includes(s) ? 'veto' : draft.require.includes(s) ? 'require' : '';
+      row.append(cycle(T('say.vote'), intent, intentStates, v => {
+        draft.veto = draft.veto.filter(x => x !== s); draft.require = draft.require.filter(x => x !== s);
+        if (v) draft[v].push(s);
+      }));
+    }
+    rows.append(row);
+  }
+  box.append(rows);
+  if (suggesting()) box.append(el('p', 'note', T('say.team', {k: sel.size, n: S.team_size})));
+  const heard = el('p', 'heard'); heard.textContent = T('say.heard') + sentence(draftMessage());
+  box.append(heard);
+  for (const x of draft.ignored) { const p = el('p', 'ignored'); p.textContent = `“${x.text}” — ${T('why.' + x.why)}`; box.append(p); }
+  const partial = suggesting() && sel.size > 0 && sel.size !== S.team_size;
+  const actions = el('div', 'actions');
+  actions.append(btn(T('say.silent'), 'ghost', () => speak({})), btn(T('say.send'), 'primary wide', () => speak(draftStance()), partial));
+  box.append(actions);
+  dock.append(box);
+}
+
+function renderTalk() {
+  const card = $('talk-card');
+  card.hidden = !(S.active && S.talk);
+  if (card.hidden) return;
+  if (!S.talk.length) { $('talk').innerHTML = `<p class="empty">${T('empty')}</p>`; return; }
+  $('talk').replaceChildren(...[...S.talk].reverse().map(round => {
+    const box = el('div', 'round');
+    box.append(el('p', 'round-title', round.evil_talk ? T('evilTalk') : T('quest', {q: round.quest})));
+    for (const m of round.messages) {
+      const line = el('p', 'line'), name = el('b', m.speaker === S.human ? 'you' : '');
+      name.textContent = who(m.speaker);
+      line.append(name, document.createTextNode(sentence(m)));
+      box.append(line);
+    }
+    return box;
+  }));
 }
 
 function renderMe() {
@@ -172,7 +301,7 @@ function renderLog() {
   $('log').innerHTML = `<table class="log"><tr><th>${T('col.q')}</th><th>${T('col.lead')}</th><th>${T('col.team')}</th><th>${T('col.votes')}</th><th>${T('col.res')}</th></tr>${rows}</table>`;
 }
 
-function render() { renderTrack(); renderRing(); renderCenter(); renderDock(); renderMe(); renderLog(); }
+function render() { renderTrack(); renderRing(); renderCenter(); renderDock(); renderMe(); renderTalk(); renderLog(); }
 
 // ---- new game dialog
 function chips(box, items, key) {
@@ -186,6 +315,7 @@ function chips(box, items, key) {
 }
 function renderSetup() {
   chips($('role-chips'), [['random', T('random')], ...['merlin', 'percival', 'servant', 'morgana', 'assassin'].map(r => [r, I18N.role(r.toUpperCase()), isEvilRole(r.toUpperCase()) ? 'evil' : 'good'])], 'role');
+  chips($('mode-chips'), [['talk', T('mode.talk')], ['silent', T('mode.silent')]], 'mode');
   chips($('seat-chips'), [1, 2, 3, 4, 5, 6].map(n => [n, String(n)]), 'seat');
   chips($('ai-chips'), [0, 1, 2].map(n => [n, `seed ${n}`]), 'baseline');
   chips($('share-chips'), [[true, T('share.yes'), 'good'], [false, T('share.no')]], 'share');
@@ -204,8 +334,9 @@ $('setup-form').addEventListener('submit', async e => {
   busy = true; $('start').disabled = true; $('start').textContent = T('loading');
   try {
     setPref('avalon_share', setup.share ? 'yes' : 'no');
-    S = await api('/api/new', {role: setup.role, seat: setup.seat, baseline: setup.baseline, share: setup.share});
-    sel.clear(); showErr(''); $('setup').close(); render();
+    setPref('avalon_mode', setup.mode);
+    S = await api('/api/new', {role: setup.role, seat: setup.seat, baseline: setup.baseline, share: setup.share, mode: setup.mode});
+    sel.clear(); draft = newDraft(); showErr(''); $('setup').close(); render();
   } catch (err) { $('setup-err').textContent = I18N.err(err.message); $('setup-err').hidden = false; }
   finally { busy = false; $('start').disabled = false; $('start').textContent = T('start'); }
 });
@@ -214,6 +345,7 @@ $('setup').addEventListener('cancel', e => { if (!S.active) e.preventDefault(); 
 $('new-btn').addEventListener('click', openSetup);
 $('rules-btn').addEventListener('click', () => $('rules').showModal());
 $('rules-ok').addEventListener('click', () => $('rules').close());
+setup.mode = pref('avalon_mode', 'talk') === 'silent' ? 'silent' : 'talk';
 $('auto').checked = pref('avalon_autoplay', 'on') === 'on';
 $('auto').addEventListener('change', () => { setPref('avalon_autoplay', $('auto').checked ? 'on' : 'off'); renderDock(); });
 
@@ -221,7 +353,7 @@ async function downloadReplay() {
   try {
     const r = await api('/api/replay');
     const url = URL.createObjectURL(new Blob([JSON.stringify(r, null, 2)], {type: 'application/json'}));
-    const a = el('a'); a.href = url; a.download = `avalon-seed${S.baseline}-${S.id}.json`; a.click();
+    const a = el('a'); a.href = url; a.download = `avalon-${S.mode}-seed${S.baseline}-${S.id}.json`; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (e) { showErr(e.message); }
 }

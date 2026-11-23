@@ -5,7 +5,7 @@
     python scripts/human_test.py --export-analysis OUT.jsonl   # shared analysis records, then exit
 
     /            home: consent to data use, then choose a mode
-    /match/      human vs. AI: one human and five frozen silent-baseline players (scripts/human_test_match.py)
+    /match/      human vs. AI: one human and five frozen AI players, silent or talking (scripts/human_test_match.py)
     /analysis/   assassination analysis of an offline human game (scripts/human_test_analysis.py)
 
 The consent choice made on the home page is remembered in the browser and prefilled in both modes, where it
@@ -34,7 +34,7 @@ import torch
 
 from scripts.human_test_analysis import (SAVE_DIR, SEEDS, Store, analysis_api, code_cookie, load_assassins,
                                          parse_code, public)
-from scripts.human_test_match import GameLog, TableSessions
+from scripts.human_test_match import TALK_DIR, GameLog, TableSessions
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web" / "human_test"
@@ -47,7 +47,7 @@ REDIRECTS = {"/match": "/match/", "/analysis": "/analysis/", "/play": "/match/",
 CSP = ("default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; "
        "frame-ancestors 'none'")
 MATCH_COOKIE = "avalon_session"
-MATCH_GET, MATCH_POST = ("/api/state", "/api/replay"), ("/api/new", "/api/action", "/api/advance")
+MATCH_GET, MATCH_POST = ("/api/state", "/api/replay"), ("/api/new", "/api/action", "/api/advance", "/api/speak", "/api/parse")
 MAX_BODY = {"/match": 8192, "/analysis": 200_000}
 
 
@@ -160,6 +160,8 @@ def main():
     parser.add_argument("--analysis-seeds", type=int, nargs="+", choices=SEEDS, default=list(SEEDS))
     parser.add_argument("--match-log", type=Path, default=LOG_DIR / "match_games.jsonl",
                         help="shared matches are appended here (JSONL)")
+    parser.add_argument("--talk-dir", type=Path, default=TALK_DIR,
+                        help="talking agents of the match mode: seed<k>/checkpoint_01000.pt")
     parser.add_argument("--analysis-dir", type=Path, default=SAVE_DIR, help="analysis records (one JSON file each)")
     parser.add_argument("--export-analysis", type=Path, metavar="OUT.jsonl",
                         help="write the shared analysis records (without record codes) to OUT.jsonl and exit")
@@ -173,7 +175,7 @@ def main():
         print(f"Exported {len(shared)} shared analysis records to {args.export_analysis}")
         return
     torch.set_num_threads(1)
-    sessions = TableSessions(args.match_seed, log=MatchLog(args.match_log))
+    sessions = TableSessions(args.match_seed, log=MatchLog(args.match_log), talk_dir=args.talk_dir)
     store = Store(args.analysis_dir, load_assassins(args.analysis_seeds))
     store.adopt_orphans(args.analysis_dir.with_name(args.analysis_dir.name + "_legacy_code.txt"))
     try:

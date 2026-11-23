@@ -1,4 +1,9 @@
-"""Human test, match mode: one human and five frozen silent-baseline players (served by scripts/human_test.py).
+"""Human test, match mode: one human and five frozen AI players (served by scripts/human_test.py).
+
+Two kinds of table: "silent" (the silent baseline) and "talk" (the talking agents, which discuss before every
+quest in the five-slot protocol). At a talk table the human's seat is free: nothing limits what it says or does,
+only clear statements reach the agents (scripts/human_test_talk.py), and deeds against one's words are counted
+in the public audit. No human seat is held to the good players' vote guard.
 
 Each browser gets its own table; frozen weights are shared, game state is not. Completed games of visitors
 who agreed to share are appended to the match log (JSONL, one game per line, no IP or browser data).
@@ -19,13 +24,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 import torch
 
+from scripts import human_test_talk as talk
 from src.agents import PolicyController, Request
+from src.comm import protocol as P
 from src.env import actions as A
 from src.env.game import AvalonGame
-from src.env.rules import QUEST_SIZES, Phase, Role, WinReason
-from src.training.checkpoint import load_policies
+from src.env.rules import N_PLAYERS, N_QUESTS, QUEST_SIZES, Phase, Role, WinReason
+from src.training.checkpoint import comm_config, load_checkpoint, load_policies
 
 ROOT = Path(__file__).resolve().parents[1]
+TALK_DIR = ROOT / "comm_F2"  # seed<k>/checkpoint_01000.pt: the talking agents (local files, not in git)
+MODES = ("silent", "talk")
 CONSENT_VERSION = 2  # Bump when the consent wording in web/human_test changes (2: one-line text, 2026-11-20).
 ROLE_NAMES = {Role.SERVANT: "忠臣", Role.MERLIN: "梅林", Role.PERCIVAL: "派西维尔",
               Role.MORGANA: "莫甘娜", Role.ASSASSIN: "刺客"}
@@ -42,10 +51,13 @@ def seats(values) -> str:
     return "、".join(str(int(s) + 1) for s in values) or "无"
 
 
-def new_game(seed: int, human: int, role: str) -> AvalonGame:
+def new_game(seed: int, human: int, role: str, comm: P.CommConfig | None = None) -> AvalonGame:
     """A random game; with a requested role, the human swaps roles with whoever drew it."""
     rng = np.random.default_rng([seed, 0])
-    game = AvalonGame(rng)
+    game = AvalonGame(rng, comm=comm)
+    game.unguarded_seats = frozenset({human})  # a human may make a losing vote
+    if game.comm.enabled:
+        game.free_seats = frozenset({human})  # ... and is not bound by the agents' rules of speech
     if role != "random":
         source = int(rng.choice(np.flatnonzero(game.roles == Role[role.upper()])))
         roles = game.roles.copy()  # A new array also invalidates the private-knowledge cache.
@@ -88,8 +100,9 @@ class GameLog:
 class HumanTable:
     """One visitor's table; only a filtered human view crosses the HTTP boundary."""
 
-    def __init__(self, default_baseline=0, models=None, log=None, clock=time.time):
+    def __init__(self, default_baseline=0, models=None, log=None, clock=time.time, talk_dir=TALK_DIR):
         self.default_baseline = default_baseline
+        self.talk_dir = Path(talk_dir)
         self.game = None
         self.models = models if models is not None else {}
         self.log = log if log is not None else GameLog(None)
@@ -103,6 +116,9 @@ class HumanTable:
         seat = data.get("seat", 1)
         role = data.get("role", "random")
         share = data.get("share")
+        mode = data.get("mode", "silent")
+        if mode not in MODES:
+            raise ValueError("未知模式。")
         if type(baseline) is not int or baseline not in (0, 1, 2):
             raise ValueError("请选择 baseline 0、1 或 2。")
         if type(seat) is not int or seat not in range(1, 7):
@@ -111,16 +127,20 @@ class HumanTable:
             raise ValueError("未知角色。")
         if type(share) is not bool:
             raise ValueError("请选择是否共享本局数据。")
-        if baseline not in self.models:
-            path = ROOT / f"baseline/seed{baseline}/checkpoint_19532.pt"
+        key = (mode, baseline)
+        if key not in self.models:
+            path = (self.talk_dir / f"seed{baseline}/checkpoint_01000.pt" if mode == "talk"
+                    else ROOT / f"baseline/seed{baseline}/checkpoint_19532.pt")
             nets = load_policies(path)
-            if any(net.comm for net in nets.values()):
-                raise ValueError("仅支持 silent baseline。")
-            self.models[baseline] = {s: PolicyController(n, learn=False) for s, n in nets.items()}
-            self.models[baseline]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+            comm = comm_config(load_checkpoint(path)["config"])
+            if comm.enabled != (mode == "talk"):
+                raise ValueError("模型与所选模式不符。")
+            self.models[key] = {s: PolicyController(n, learn=False) for s, n in nets.items()}
+            self.models[key].update(sha256=hashlib.sha256(path.read_bytes()).hexdigest(), comm=comm)
+        self.mode, self.ai = mode, self.models[key]
         self.baseline, self.human, self.role, self.share = baseline, seat - 1, role, share
         self.seed = secrets.randbits(32)
-        self.game = new_game(self.seed, self.human, role)
+        self.game = new_game(self.seed, self.human, role, self.ai["comm"])
         self.rng = np.random.default_rng([self.seed, 1_000_003])
         self.id, self.revision = secrets.token_hex(12), 0
         self.started = self.clock()
@@ -129,12 +149,53 @@ class HumanTable:
         self.decisions = []
         return self.view()
 
+    def parse(self, data):
+        """What the agents would hear in a typed sentence (changes nothing)."""
+        game = self.game
+        if game is None or game.done or not game.in_discussion or game.acting_players() != [self.human]:
+            raise ValueError("现在不是你的发言时间。")
+        text = data.get("text")
+        if not isinstance(text, str):
+            raise ValueError("发言格式不正确。")
+        return talk.parse(text, game, self.human)
+
+    def speak(self, data, advance):
+        """One speaker of the discussion: the human's stance, or the next agent's message."""
+        game, speaker = self.game, self.game.acting_players()[0]
+        phase, q = game.phase, game.quest
+        size = QUEST_SIZES[0] if phase == Phase.EVIL_DISCUSS else game.team_size
+        if speaker == self.human:
+            if advance or "stance" not in data:
+                raise ValueError("请先发言，或选择不发言。")
+            stance = talk.clean_stance(data["stance"], game, self.human)
+            msg = talk.stance_message(game, self.human, stance)
+            self.decisions.append({"phase": phase.name, "quest": q, "message": P.decode_message(msg, speaker, size),
+                                   "typed": bool(data.get("typed")), "seconds": round(self.clock() - self.started, 1)})
+        else:
+            if not advance:
+                raise ValueError("当前请点击继续，等待 AI 行动。")
+            ctx = P.message_context(game, speaker)
+            msg = P.forced_message(ctx)
+            if msg is None:
+                side = "evil" if game.is_evil_seat(speaker) else "good"
+                msg = self.ai[side].speak([Request(0, game, speaker, None, ctx)], self.rng).messages[0]
+        game.step({speaker: msg})
+        self.event = {"kind": "speech", "evil_talk": phase == Phase.EVIL_DISCUSS,
+                      "message": talk.message_view(P.decode_message(np.asarray(msg), speaker, size)),
+                      "text": f"{speaker + 1} 号发言。"}
+        self.revision += 1
+        return self.view()
+
     def step(self, data, advance=False):
         game = self.game
         if game is None or game.done:
             raise ValueError("请先开始一局新游戏。")
         if data.get("id") != self.id or data.get("revision") != self.revision:
             raise ValueError("牌桌已更新，请刷新后再操作。")
+        if game.in_discussion:
+            return self.speak(data, advance)
+        if "stance" in data:
+            raise ValueError("现在不是发言时间。")
         acting = game.acting_players()
         chosen = {}
         if self.human in acting:
@@ -161,7 +222,7 @@ class HumanTable:
                 else:
                     requests.append(Request(0, game, p, mask))
             if requests:
-                result = self.models[self.baseline][side].act(requests, self.rng)
+                result = self.ai[side].act(requests, self.rng)
                 chosen.update({r.player: int(a) for r, a in zip(requests, result.actions)})
         game.step(chosen)
         if self.human in chosen:
@@ -192,10 +253,12 @@ class HumanTable:
     def record(self):
         """Full post-game record (seats 0–5, hidden roles included); no IP or browser data."""
         g = self.game
-        return {"kind": "human_vs_baseline", "consent_version": CONSENT_VERSION,
+        return {"kind": "human_vs_baseline" if self.mode == "silent" else "human_vs_talk", "mode": self.mode,
+                "agents": "baseline" if self.mode == "silent" else self.talk_dir.name,
+                "human_free": self.mode == "talk", "human_guarded": False, "consent_version": CONSENT_VERSION,
                 "finished_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 "player": self.player, "player_game": self.games, "table_id": self.id,
-                "baseline_seed": self.baseline, "checkpoint_sha256": self.models[self.baseline].get("sha256"),
+                "baseline_seed": self.baseline, "checkpoint_sha256": self.ai["sha256"],
                 "seed": self.seed, "human_seat": self.human, "requested_role": self.role,
                 "human_role": Role(int(g.roles[self.human])).name,
                 "human_won": bool(g.good_won) != g.is_evil_seat(self.human),
@@ -209,7 +272,7 @@ class HumanTable:
         evil, candidates = g.private_knowledge(h)
         human_turn = not g.done and h in g.acting_players()
         options = []
-        if human_turn:
+        if human_turn and not g.in_discussion:
             for action, label in action_options(g, h):
                 option = {"action": action, "label": label, "kind": OPTION_KINDS.get(action, "team" if g.phase == Phase.PROPOSE else "target")}
                 if g.phase == Phase.PROPOSE:
@@ -228,7 +291,7 @@ class HumanTable:
                                 "votes": g.prop_votes[q, a].tolist() if g.prop_voted[q, a] else None,
                                 "approved": bool(g.prop_approved[q, a]) if g.prop_voted[q, a] else None})
         state = {
-            "active": True, "id": self.id, "revision": self.revision, "baseline": self.baseline,
+            "active": True, "id": self.id, "revision": self.revision, "baseline": self.baseline, "mode": self.mode,
             "human": h + 1, "role": ROLE_NAMES[Role(int(g.roles[h]))], "role_key": Role(int(g.roles[h])).name,
             "side": "evil" if g.is_evil_seat(h) else "good",
             "known_evil": [int(s) + 1 for s in np.flatnonzero(evil)],
@@ -237,7 +300,7 @@ class HumanTable:
             "quest": min(g.quest + 1, 5), "attempt": min(g.attempt + 1, 5),
             "leader": int(g.prop_leader[g.quest, g.attempt]) + 1 if g.phase == Phase.QUEST else g.leader + 1,
             "team": [int(s) + 1 for s in np.flatnonzero(g.team)],
-            "team_size": g.team_size if g.phase in (Phase.PROPOSE, Phase.VOTE, Phase.QUEST) else 0,
+            "team_size": g.team_size if g.phase in (Phase.DISCUSS, Phase.PROPOSE, Phase.VOTE, Phase.QUEST) else 0,
             "successes": g.successes, "fails": g.fails,
             "quests": [{"size": size, "result": int(g.quest_result[q]),
                         "fails": int(g.quest_fails[q]) if g.quest_result[q] >= 0 else None}
@@ -245,12 +308,35 @@ class HumanTable:
             "human_turn": human_turn, "options": options, "history": history,
             "event": self.event, "done": g.done, "share": self.share,
         }
+        if g.comm.enabled:
+            state["speaker"] = g.acting_players()[0] + 1 if g.in_discussion else None
+            state["talk"] = self.talk_log()
+            # Public count per seat of deeds against its own words (judgment, intent, own suggestion).
+            state["broken_words"] = [int(n) for n in g.audit[:, [P.A_JUDGE, P.A_INTENT, P.A_TEAM]].sum(axis=1)]
         if g.done:
             state["result"] = {"good_won": bool(g.good_won), "human_won": bool(g.good_won) != g.is_evil_seat(h),
                                "reason": REASONS[g.win_reason], "target": g.assassin_target + 1,
                                "roles": [ROLE_NAMES[Role(int(r))] for r in g.roles],
                                "reason_key": g.win_reason.name, "role_keys": [Role(int(r)).name for r in g.roles]}
         return state
+
+    def talk_log(self):
+        """Every discussion so far, in speaking order: [{"quest": 1.., "evil_talk": bool, "messages": [...]}]."""
+        g, rounds = self.game, []
+        for q in range(N_QUESTS):
+            spoke = g.msg_log[q, :, 0] >= 0
+            if not spoke.any():
+                continue
+            leader = int(g.prop_leader[q, 0]) if g.prop_leader[q, 0] >= 0 else g.leader  # still talking
+            order = [(leader + k) % N_PLAYERS for k in range(1, N_PLAYERS)] + [leader]
+            rounds.append({"quest": q + 1, "evil_talk": False, "messages": [
+                talk.message_view(P.decode_message(g.msg_log[q, s], s, QUEST_SIZES[q])) for s in order if spoke[s]]})
+        spoke = g.evil_log[:, 0] >= 0
+        if spoke.any():
+            order = [g.seat_of(Role.MORGANA), g.seat_of(Role.ASSASSIN)]
+            rounds.append({"quest": None, "evil_talk": True, "messages": [
+                talk.message_view(P.decode_message(g.evil_log[s], s, QUEST_SIZES[0])) for s in order if spoke[s]]})
+        return rounds
 
     def replay(self):
         if self.game is None or not self.game.done:
@@ -266,8 +352,9 @@ class TableSessions:
     """Independent browser sessions sharing frozen model weights, never game state."""
 
     def __init__(self, default_baseline=0, ttl=7200, capacity=128, idle_evict=600, log=None,
-                 clock=time.monotonic):
+                 clock=time.monotonic, talk_dir=TALK_DIR):
         self.default_baseline, self.ttl, self.capacity, self.idle_evict = default_baseline, ttl, capacity, idle_evict
+        self.talk_dir = talk_dir
         self.log = log if log is not None else GameLog(None)
         self.clock = clock
         self.tables = {}
@@ -294,7 +381,8 @@ class TableSessions:
                         raise RuntimeError("当前牌桌人数已满，请稍后再试。")
                     del self.tables[oldest]
                 session_id, created = secrets.token_urlsafe(32), True
-                self.tables[session_id] = (HumanTable(self.default_baseline, self.models, self.log), now)
+                self.tables[session_id] = (HumanTable(self.default_baseline, self.models, self.log,
+                                                      talk_dir=self.talk_dir), now)
             table, _ = self.tables[session_id]
             self.tables[session_id] = (table, now)
             try:
@@ -304,7 +392,9 @@ class TableSessions:
                     result = table.start(data)
                 elif path == "/api/replay":
                     result = table.replay()
-                elif path in ("/api/action", "/api/advance"):
+                elif path == "/api/parse":
+                    result = table.parse(data)
+                elif path in ("/api/action", "/api/advance", "/api/speak"):
                     result = table.step(data, advance=path.endswith("advance"))
                 else:
                     raise ValueError("未知接口。")
