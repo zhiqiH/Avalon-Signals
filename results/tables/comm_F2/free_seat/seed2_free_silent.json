@@ -1,0 +1,72 @@
+{
+ "checkpoint": "runs/comm_F2/stage3b_F/seed2/checkpoint_01000.pt",
+ "games": 3600,
+ "seed": 20261122,
+ "conditions": {
+  "free_silent": {
+   "servant_percival": {
+    "games": 1836,
+    "good_win": 0.3764,
+    "good_win_ci95": [
+     0.3545,
+     0.3988
+    ],
+    "three_successes": 0.5632,
+    "assassin_hit_given_three_successes": 0.3317,
+    "others_suggestions_with_seat": 0.4893,
+    "others_proposals_with_seat": 0.5264,
+    "quests_with_seat": 0.5528,
+    "audit_per_game": {
+     "judge": 0.0,
+     "intent": 0.0,
+     "team": 0.0,
+     "vouch": 0.0
+    },
+    "final_suspicion_seat": 0.3567,
+    "final_suspicion_teammates": 0.3793
+   },
+   "merlin": {
+    "games": 616,
+    "good_win": 0.3571,
+    "good_win_ci95": [
+     0.3203,
+     0.3958
+    ],
+    "three_successes": 0.526,
+    "assassin_hit_given_three_successes": 0.321,
+    "others_suggestions_with_seat": 0.4917,
+    "others_proposals_with_seat": 0.5159,
+    "quests_with_seat": 0.5215,
+    "audit_per_game": {
+     "judge": 0.0,
+     "intent": 0.0,
+     "team": 0.0,
+     "vouch": 0.0
+    },
+    "final_suspicion_seat": 0.2642,
+    "final_suspicion_teammates": 0.4993
+   },
+   "evil": {
+    "games": 1148,
+    "good_win": 0.3772,
+    "good_win_ci95": [
+     0.3496,
+     0.4056
+    ],
+    "three_successes": 0.5409,
+    "assassin_hit_given_three_successes": 0.3027,
+    "others_suggestions_with_seat": 0.3206,
+    "others_proposals_with_seat": 0.4169,
+    "quests_with_seat": 0.3671,
+    "audit_per_game": {
+     "judge": 0.0,
+     "intent": 0.0,
+     "team": 0.0,
+     "vouch": 0.0
+    },
+    "final_suspicion_seat": 1.0645,
+    "final_suspicion_teammates": 1.2864
+   }
+  }
+ }
+}

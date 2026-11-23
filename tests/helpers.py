@@ -10,8 +10,10 @@ from src.env import actions as A
 ROLES = [Role.MERLIN, Role.PERCIVAL, Role.SERVANT, Role.SERVANT, Role.MORGANA, Role.ASSASSIN]
 
 
-def make_game(roles=ROLES, leader: int = 0, comm=None) -> AvalonGame:
+def make_game(roles=ROLES, leader: int = 0, comm=None, binding: bool = True) -> AvalonGame:
+    """`binding=False` switches off the rule that words bind deeds (scripts where a leader rejects its own team)."""
     game = AvalonGame(np.random.default_rng(0), comm=comm)
+    game.word_binding = binding
     game.roles = np.array([int(r) for r in roles], dtype=np.int8)
     game.leader = leader
     return game

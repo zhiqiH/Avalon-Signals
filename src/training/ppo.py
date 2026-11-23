@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from ..agents.policy import ActorCritic
+from ..agents.policy import ActorCritic, heads_kl, stage_a_onehot
 from .rollout import Batch
 
 
@@ -19,6 +19,9 @@ class PPOConfig:
     clip_coef: float = 0.2
     vf_coef: float = 0.5
     ent_coef: float = 0.01
+    # Entropy bonus of message decisions; None means ent_coef. A message's entropy is the sum over its heads,
+    # so the shared coefficient pulls messages toward uniform several times harder than game actions.
+    msg_ent_coef: float | None = None
     max_grad_norm: float = 0.5
     gamma: float = 1.0
     gae_lambda: float = 0.95
@@ -32,6 +35,8 @@ def ppo_update(
     cfg: PPOConfig,
     device: torch.device,
     rng: np.random.Generator,
+    ref_net: ActorCritic | None = None,
+    msg_kl_coef: float = 0.0,
 ) -> dict[str, float]:
     """Run `cfg.epochs` passes of minibatch PPO over `batch` and return mean diagnostics.
 
@@ -44,10 +49,13 @@ def ppo_update(
     comm_obs = torch.as_tensor(batch.comm_obs) if net.comm else None
     old_logps, advantages, returns = t(batch.logps), t(batch.advantages), t(batch.returns)
     is_msg = actions[:, 0] < 0  # message decisions use no game-action head
+    msg_ent_coef = cfg.ent_coef if cfg.msg_ent_coef is None else cfg.msg_ent_coef
 
     n = len(batch)
     keys = ["policy_loss", "value_loss", "entropy", "approx_kl", "clipfrac"]
     keys += ["msg_entropy"] if net.comm else []
+    anchor = ref_net is not None and msg_kl_coef > 0  # pull the message heads toward the reference (teacher) heads
+    keys += ["msg_kl"] if anchor else []
     # Diagnostics stay on the device until the end: a .item() per minibatch would stall the GPU queue.
     # Each entry is a (sum, count) pair per minibatch, so a key can skip minibatches without a host sync.
     stats: dict[str, list[tuple[torch.Tensor, torch.Tensor]]] = {k: [] for k in keys}
@@ -58,7 +66,7 @@ def ppo_update(
         for start in range(0, n, cfg.minibatch_size):
             idx = torch.as_tensor(order[start:start + cfg.minibatch_size], device=device)
             mb_comm = comm_obs[idx.cpu()].to(device, non_blocking=True) if comm_obs is not None else None
-            new_logps, entropies, value, _ = net.evaluate(obs[idx], mb_comm, masks[idx], actions[idx])
+            new_logps, entropies, value, logits = net.evaluate(obs[idx], mb_comm, masks[idx], actions[idx])
             log_ratio = new_logps - old_logps[idx]
             ratio = log_ratio.exp()
 
@@ -67,7 +75,15 @@ def ppo_update(
                 adv = (adv - adv.mean()) / (adv.std() + 1e-8)
             policy_loss = torch.max(-adv * ratio, -adv * ratio.clamp(1 - cfg.clip_coef, 1 + cfg.clip_coef)).mean()
             value_loss = 0.5 * (value - returns[idx]).pow(2).mean()
-            loss = policy_loss - cfg.ent_coef * entropies.mean() + cfg.vf_coef * value_loss
+            ent_coefs = torch.where(is_msg[idx], msg_ent_coef, cfg.ent_coef)
+            loss = policy_loss - (ent_coefs * entropies).mean() + cfg.vf_coef * value_loss
+            if anchor:
+                msg_rows = is_msg[idx].float()
+                with torch.no_grad():
+                    ref_logits = ref_net.logits(obs[idx], mb_comm, stage_a_onehot(actions[idx][:, 1:]))
+                kl = heads_kl(logits, ref_logits, masks[idx], actions[idx].long(), net.head_sizes) * msg_rows
+                loss = loss + msg_kl_coef * kl.sum() / msg_rows.sum().clamp(min=1)
+                stats["msg_kl"].append((kl.detach().sum(), msg_rows.sum()))
 
             optimizer.zero_grad()
             loss.backward()

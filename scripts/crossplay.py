@@ -19,6 +19,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repository root, so `import src` works
 
 from src.agents import PolicyController
+from src.env.game import AvalonGame
 from src.evaluation import run_matchup
 from src.training.checkpoint import comm_config, load_checkpoint, load_policies
 
@@ -29,7 +30,9 @@ def main() -> None:
     parser.add_argument("--games", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=20261020, help="role-assignment seed shared by all cells")
     parser.add_argument("--out")
+    parser.add_argument("--no-guard", action="store_true", help="lift the good players' vote guard (reference only)")
     args = parser.parse_args()
+    AvalonGame.good_guard = not args.no_guard
 
     policies = [{t: PolicyController(net, learn=False) for t, net in load_policies(c).items()} for c in args.checkpoints]
     comms = [comm_config(load_checkpoint(c)["config"]) for c in args.checkpoints]

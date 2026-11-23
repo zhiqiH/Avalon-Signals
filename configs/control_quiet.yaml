@@ -1,0 +1,52 @@
+# Control for configuration F: the same game, the same start and the same training, without a word.
+# Identical to comm_F.yaml except that every slot is silenced during training as well: the discussion phases
+# pass without a message, so no words bind anybody, while the rules on deeds stay (the vote guard; a leader
+# proposes one of the cleanest teams by the record). Trained like F's stages 2 and 3 together
+# (scripts/run_comm_pipeline.sh, CONTROL=1): same LoRA rank, same number of games, same opponents.
+name: control_quiet
+seed: 0
+device: cuda
+total_games: 752640
+games_per_iter: 512
+checkpoint_every: 20
+workers: 4              # rollout worker processes per run; sized for 6 runs at once on 32 CPU threads
+out_dir: runs
+init_from: baseline/seed{seed}/checkpoint_19532.pt
+
+comm:
+  enabled: true
+  claim: true
+  alignment: true
+  rationale: true
+  team: true
+  intent: true
+  silence: [claim, alignment, rationale, team, intent]
+
+model:
+  hidden_sizes: [256, 256]
+  deduction: true       # deduction fields of the observation (README, Observation)
+
+ppo:
+  lr: 3.0e-4
+  epochs: 4
+  minibatch_size: 2048
+  clip_coef: 0.2
+  vf_coef: 0.5
+  ent_coef: 0.01
+  max_grad_norm: 0.5
+  gamma: 1.0            # finite game with a single terminal reward
+  gae_lambda: 0.95
+  norm_adv: true
+
+opponents:
+  p_self: 0.5           # both teams current policies
+  p_pool: 0.25          # one team replaced by a past snapshot
+  p_rule: 0.25          # one team replaced by the rule-based player
+  snapshot_every: 10
+  pool_size: 20
+  rule_fail_prob: 0.9
+  rule_merlin_knowledge_prob: 0.5   # rule Merlin acts on his knowledge only half the time
+
+eval:
+  every: 20
+  games: 512

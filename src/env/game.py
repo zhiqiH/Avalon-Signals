@@ -34,6 +34,18 @@ from .rules import (
 
 
 class AvalonGame:
+    # Good players cannot make two votes that can only lose: they approve the forced fifth proposal (a fifth
+    # rejection ends the game), and with two quests failed they reject a team that holds an evil player in every
+    # evil pair their own knowledge still allows. Set to False only to measure play without the guard.
+    good_guard = True
+    # In a communication game a player's words bind its own actions (comm.protocol, "words bind deeds"), and a
+    # leader approves its own proposal. Set to False only to measure play without the binding.
+    word_binding = True
+    # Seats the word rules do not bind (a human at the table; set on the instance): their messages need not follow
+    # the message rules and their words do not limit their actions. What they do against their words is counted
+    # in the public audit like anyone's would be without the binding. The vote guard still holds for them.
+    free_seats: frozenset = frozenset()
+
     def __init__(self, rng: np.random.Generator | None = None, comm: P.CommConfig | None = None):
         self.comm = comm if comm is not None else P.CommConfig()
         self.reset(rng if rng is not None else np.random.default_rng())
@@ -72,6 +84,8 @@ class AvalonGame:
             self.msg_feat = np.zeros((N_QUESTS, N_PLAYERS, P.MSG_FEAT_DIM), dtype=np.int8)
             self.evil_log = np.full((N_PLAYERS, P.N_MSG_HEADS), -1, dtype=np.int8)
             self.evil_feat = np.zeros((N_PLAYERS, P.MSG_FEAT_DIM), dtype=np.int8)
+        # Public count per player of deeds against its own words (comm.protocol.AUDIT); stays zero in the silent game.
+        self.audit = np.zeros((N_PLAYERS, len(P.AUDIT)), dtype=np.int8)
         return self
 
     # ------------------------------------------------------------------ queries
@@ -118,18 +132,57 @@ class AvalonGame:
     def legal_mask(self, player: int) -> np.ndarray:
         """Legal game actions (none during discussions, where players send messages instead)."""
         mask = np.zeros(A.N_ACTIONS, dtype=bool)
+        bound = self.word_binding and self.comm.enabled and player not in self.free_seats
         if self.phase == Phase.PROPOSE and player == self.leader:
-            mask[A.TEAM_OFFSET:A.TEAM_OFFSET + len(A.TEAMS_BY_SIZE[self.team_size])] = True
+            teams = slice(A.TEAM_OFFSET, A.TEAM_OFFSET + len(A.TEAMS_BY_SIZE[self.team_size]))
+            mask[teams] = True
+            if bound:
+                # Its words leave at least one team (the message masks see to that). Where teams are talked about,
+                # it proposes one of the cleanest of those by the record, with itself (the rule on suggestions);
+                # in any case not one the vote guard would make it reject, if it has a choice.
+                words = P.word_teams(self, player)
+                clean = P.clean_teams(self, player) if self.comm.is_open("team") else words
+                for ok in (clean, words & ~self.guarded_teams(player), words):
+                    if ok.any():
+                        mask[teams] = ok
+                        break
         elif self.phase == Phase.VOTE:
-            mask[A.APPROVE] = mask[A.REJECT] = True
+            word = P.word_vote(self, player) if bound else None
+            mask[A.REJECT] = word is not True
+            mask[A.APPROVE] = word is not False
+            if self.good_guard and not self.is_evil_seat(player):
+                if self.attempt == MAX_PROPOSALS - 1:
+                    mask[A.APPROVE], mask[A.REJECT] = True, False
+                elif self.fails == WINS_NEEDED - 1 and self.certainly_dirty(player):
+                    mask[A.APPROVE], mask[A.REJECT] = False, True
         elif self.phase == Phase.QUEST and self.team[player]:
             mask[A.SUCCESS] = True
             mask[A.FAIL] = self.is_evil_seat(player)  # good players can only succeed
         elif self.phase == Phase.ASSASSINATE and self.roles[player] == Role.ASSASSIN:
+            named = P.named_merlin(self, player) if bound else None  # it strikes the player it named as Merlin
             for seat in range(N_PLAYERS):
-                if not self.is_evil_seat(seat):
+                if not self.is_evil_seat(seat) and named in (None, seat):
                     mask[A.assassin_action(player, seat)] = True
         return mask
+
+    def guarded_teams(self, player: int) -> np.ndarray:
+        """(teams of the current size,) bool, in `player`'s relative frame: the teams the vote guard makes it reject
+        (two quests failed, and the team holds an evil player in every evil pair it still thinks possible)."""
+        from .observation import _PAIR_MEMBERS, possible_evil_pairs  # observation imports this module
+
+        n = len(A.TEAMS_BY_SIZE[self.team_size])
+        if not self.good_guard or self.is_evil_seat(player) or self.fails != WINS_NEEDED - 1:
+            return np.zeros(n, dtype=bool)
+        teams = np.zeros((n, N_PLAYERS), dtype=bool)
+        teams[:, (player + np.arange(N_PLAYERS)) % N_PLAYERS] = P.TEAM_MEMBERS[self.team_size][1:1 + n]
+        pairs = _PAIR_MEMBERS[possible_evil_pairs(self, player)]
+        return (pairs[:, None, :] & teams[None, :, :]).any(axis=2).all(axis=0)
+
+    def certainly_dirty(self, player: int) -> bool:
+        """Whether the team under vote holds an evil player in every evil pair `player` still thinks possible."""
+        from .observation import _PAIR_MEMBERS, possible_evil_pairs  # observation imports this module
+
+        return bool((_PAIR_MEMBERS[possible_evil_pairs(self, player)] & self.team).any(axis=1).all())
 
     def private_knowledge(self, player: int) -> tuple[np.ndarray, np.ndarray]:
         """(known_evil, merlin_candidates) in absolute seats, as allowed by the player's role.
@@ -167,7 +220,7 @@ class AvalonGame:
         if self.in_discussion:
             speaker, msg = next(iter(actions.items()))
             if not message_checked:
-                P.check_message(self, speaker, msg)
+                P.check_message(self, speaker, msg, free=speaker in self.free_seats)
             self._speak(speaker, np.asarray(msg, dtype=np.int8))
             return
         for p, a in actions.items():
@@ -189,7 +242,15 @@ class AvalonGame:
         self.team[list(A.decode_team(self.leader, action, self.team_size))] = True
         self.prop_leader[q, a] = self.leader
         self.prop_team[q, a] = self.team
+        if self.comm.enabled:
+            self._audit_backing(self.leader)
         self.phase = Phase.VOTE
+
+    def _audit_backing(self, player: int) -> None:
+        """Count it against `player` if the team it now backs goes against its own message of this round."""
+        judged_evil, broken_intent = P.backs_against_word(self, player)
+        self.audit[player, P.A_JUDGE] += judged_evil
+        self.audit[player, P.A_INTENT] += broken_intent
 
     def _speak(self, speaker: int, msg: np.ndarray) -> None:
         if self.phase == Phase.DISCUSS:
@@ -210,6 +271,14 @@ class AvalonGame:
         self.prop_votes[q, a] = approve
         approved = int(approve.sum()) >= APPROVALS_NEEDED
         self.prop_approved[q, a] = approved
+        if self.comm.enabled and a < MAX_PROPOSALS - 1:  # the forced fifth proposal tests nobody's word
+            for p in range(N_PLAYERS):
+                if p == self.leader:  # counted when it proposed
+                    continue
+                if approve[p]:
+                    self._audit_backing(p)
+                elif P.is_own_suggestion(self, p):
+                    self.audit[p, P.A_TEAM] += 1
         self.leader = (self.leader + 1) % N_PLAYERS  # leadership passes after every vote
         if approved:
             self.quest_team[q] = self.team
@@ -233,6 +302,9 @@ class AvalonGame:
         self.quest_result[q] = int(n_fail > 0)
         if n_fail > 0:
             self.fails += 1
+            if self.comm.enabled:  # whoever vouched for a member of the failed team
+                for p in range(N_PLAYERS):
+                    self.audit[p, P.A_VOUCH] += int((P.vouched_for(self, p) & self.team).sum())
         else:
             self.successes += 1
         self.quest += 1

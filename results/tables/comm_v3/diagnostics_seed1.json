@@ -1,0 +1,310 @@
+{
+ "talk": {
+  "good_win": 0.655,
+  "three_successes": 0.935,
+  "assassin_hit_given_three_successes": 0.2995,
+  "speaker": {
+   "assassin": {
+    "pairs": 40650,
+    "base_rate_evil": 0.2,
+    "talk": {
+     "judged_share": 0.2495,
+     "accused_share": 0.0618,
+     "accusation_precision": 0.1619,
+     "info_gain_nats": 0.00866
+    },
+    "babbler": {
+     "judged_share": 0.8363,
+     "accused_share": 0.2993,
+     "accusation_precision": 0.2046,
+     "info_gain_nats": -3e-05
+    }
+   },
+   "merlin": {
+    "pairs": 40650,
+    "base_rate_evil": 0.4,
+    "talk": {
+     "judged_share": 0.6257,
+     "accused_share": 0.1889,
+     "accusation_precision": 0.4909,
+     "info_gain_nats": 0.00522
+    },
+    "babbler": {
+     "judged_share": 0.8077,
+     "accused_share": 0.2637,
+     "accusation_precision": 0.4316,
+     "info_gain_nats": 0.00138
+    }
+   },
+   "morgana": {
+    "pairs": 40650,
+    "base_rate_evil": 0.2,
+    "talk": {
+     "judged_share": 0.242,
+     "accused_share": 0.0631,
+     "accusation_precision": 0.1754,
+     "info_gain_nats": 0.00883
+    },
+    "babbler": {
+     "judged_share": 0.8337,
+     "accused_share": 0.299,
+     "accusation_precision": 0.2129,
+     "info_gain_nats": 0.00024
+    }
+   },
+   "percival": {
+    "pairs": 40650,
+    "base_rate_evil": 0.4,
+    "talk": {
+     "judged_share": 0.6553,
+     "accused_share": 0.2247,
+     "accusation_precision": 0.5477,
+     "info_gain_nats": 0.01774
+    },
+    "babbler": {
+     "judged_share": 0.8046,
+     "accused_share": 0.2643,
+     "accusation_precision": 0.4594,
+     "info_gain_nats": 0.00338
+    }
+   },
+   "servant": {
+    "pairs": 81300,
+    "base_rate_evil": 0.4,
+    "talk": {
+     "judged_share": 0.6347,
+     "accused_share": 0.2436,
+     "accusation_precision": 0.5373,
+     "info_gain_nats": 0.01554
+    },
+    "babbler": {
+     "judged_share": 0.804,
+     "accused_share": 0.2688,
+     "accusation_precision": 0.4686,
+     "info_gain_nats": 0.00492
+    }
+   }
+  },
+  "listener_tv": {
+   "assassin/propose": {
+    "mean": 0.2271,
+    "share_over_0.1": 0.6814,
+    "n": 1042
+   },
+   "assassin/vote": {
+    "mean": 0.1051,
+    "share_over_0.1": 0.2668,
+    "n": 6365
+   },
+   "merlin/propose": {
+    "mean": 0.2607,
+    "share_over_0.1": 0.4848,
+    "n": 1054
+   },
+   "merlin/vote": {
+    "mean": 0.1478,
+    "share_over_0.1": 0.2767,
+    "n": 5345
+   },
+   "morgana/propose": {
+    "mean": 0.2159,
+    "share_over_0.1": 0.6489,
+    "n": 1011
+   },
+   "morgana/vote": {
+    "mean": 0.1034,
+    "share_over_0.1": 0.2645,
+    "n": 6296
+   },
+   "percival/propose": {
+    "mean": 0.3728,
+    "share_over_0.1": 0.6244,
+    "n": 1065
+   },
+   "percival/vote": {
+    "mean": 0.1699,
+    "share_over_0.1": 0.3177,
+    "n": 5307
+   },
+   "servant/propose": {
+    "mean": 0.3762,
+    "share_over_0.1": 0.6208,
+    "n": 2149
+   },
+   "servant/vote": {
+    "mean": 0.1668,
+    "share_over_0.1": 0.3132,
+    "n": 10768
+   }
+  },
+  "evil_talk_merlin_named_correct": 0.2472
+ },
+ "babble": {
+  "good_win": 0.4815,
+  "three_successes": 0.6595,
+  "assassin_hit_given_three_successes": 0.2699
+ },
+ "silence": {
+  "good_win": 0.589,
+  "three_successes": 0.812,
+  "assassin_hit_given_three_successes": 0.2746
+ },
+ "teacher": {
+  "good_win": 0.55,
+  "three_successes": 0.823,
+  "assassin_hit_given_three_successes": 0.3317,
+  "speaker": {
+   "assassin": {
+    "pairs": 41290,
+    "base_rate_evil": 0.2,
+    "talk": {
+     "judged_share": 0.317,
+     "accused_share": 0.1813,
+     "accusation_precision": 0.0,
+     "info_gain_nats": 0.09727
+    },
+    "babbler": {
+     "judged_share": 0.8341,
+     "accused_share": 0.3063,
+     "accusation_precision": 0.203,
+     "info_gain_nats": -0.00012
+    }
+   },
+   "merlin": {
+    "pairs": 41290,
+    "base_rate_evil": 0.4,
+    "talk": {
+     "judged_share": 0.6649,
+     "accused_share": 0.2995,
+     "accusation_precision": 0.8862,
+     "info_gain_nats": 0.29944
+    },
+    "babbler": {
+     "judged_share": 0.8041,
+     "accused_share": 0.2947,
+     "accusation_precision": 0.536,
+     "info_gain_nats": 0.01404
+    }
+   },
+   "morgana": {
+    "pairs": 41290,
+    "base_rate_evil": 0.2,
+    "talk": {
+     "judged_share": 0.3185,
+     "accused_share": 0.1806,
+     "accusation_precision": 0.0,
+     "info_gain_nats": 0.0946
+    },
+    "babbler": {
+     "judged_share": 0.8297,
+     "accused_share": 0.3074,
+     "accusation_precision": 0.2074,
+     "info_gain_nats": 3e-05
+    }
+   },
+   "percival": {
+    "pairs": 41290,
+    "base_rate_evil": 0.4,
+    "talk": {
+     "judged_share": 0.4405,
+     "accused_share": 0.1828,
+     "accusation_precision": 0.5674,
+     "info_gain_nats": 0.00322
+    },
+    "babbler": {
+     "judged_share": 0.8224,
+     "accused_share": 0.2914,
+     "accusation_precision": 0.4138,
+     "info_gain_nats": 6e-05
+    }
+   },
+   "servant": {
+    "pairs": 82580,
+    "base_rate_evil": 0.4,
+    "talk": {
+     "judged_share": 0.3143,
+     "accused_share": 0.2056,
+     "accusation_precision": 0.5589,
+     "info_gain_nats": 0.02491
+    },
+    "babbler": {
+     "judged_share": 0.8236,
+     "accused_share": 0.3118,
+     "accusation_precision": 0.4305,
+     "info_gain_nats": 0.00039
+    }
+   }
+  },
+  "listener_tv": {
+   "assassin/propose": {
+    "mean": 0.2207,
+    "share_over_0.1": 0.6718,
+    "n": 1100
+   },
+   "assassin/vote": {
+    "mean": 0.119,
+    "share_over_0.1": 0.2972,
+    "n": 6609
+   },
+   "merlin/propose": {
+    "mean": 0.2347,
+    "share_over_0.1": 0.4759,
+    "n": 1181
+   },
+   "merlin/vote": {
+    "mean": 0.1301,
+    "share_over_0.1": 0.253,
+    "n": 5376
+   },
+   "morgana/propose": {
+    "mean": 0.2253,
+    "share_over_0.1": 0.6606,
+    "n": 1093
+   },
+   "morgana/vote": {
+    "mean": 0.1166,
+    "share_over_0.1": 0.3047,
+    "n": 6731
+   },
+   "percival/propose": {
+    "mean": 0.3415,
+    "share_over_0.1": 0.5964,
+    "n": 1110
+   },
+   "percival/vote": {
+    "mean": 0.1437,
+    "share_over_0.1": 0.2812,
+    "n": 5359
+   },
+   "servant/propose": {
+    "mean": 0.3452,
+    "share_over_0.1": 0.6074,
+    "n": 2305
+   },
+   "servant/vote": {
+    "mean": 0.1505,
+    "share_over_0.1": 0.2904,
+    "n": 11226
+   }
+  },
+  "evil_talk_merlin_named_correct": 0.2503
+ },
+ "gradients": {
+  "good": {
+   "msg_heads_pg_cosine_between_batches": 0.0544535294175148,
+   "listen_inputs_game_pg_cosine_between_batches": 0.0013904711231589317,
+   "msg_heads_norm_pg": 0.06566,
+   "msg_heads_norm_entropy": 0.002355,
+   "listen_inputs_norm_game_pg": 0.087205
+  },
+  "evil": {
+   "msg_heads_pg_cosine_between_batches": 0.10576314479112625,
+   "listen_inputs_game_pg_cosine_between_batches": 0.0048840222880244255,
+   "msg_heads_norm_pg": 0.046623,
+   "msg_heads_norm_entropy": 0.000743,
+   "listen_inputs_norm_game_pg": 0.094015
+  }
+ },
+ "source": "runs/comm_v3/stage3b_M/seed1/checkpoint_01000.pt",
+ "speaker": null
+}

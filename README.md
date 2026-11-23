@@ -45,6 +45,7 @@ This README is the experiment plan and design. It will be replaced by a results 
 | Item | Rule |
 |---|---|
 | Missions and votes | Mission sizes 2-3-4-3-4. A team needs at least four approvals; a tie rejects. Five rejected proposals in one mission give the win to evil. |
+| Vote guard for good players | Two votes that can only lose are not legal for a good player. On the fifth proposal of a mission it must approve. With two missions failed it must reject a team that, by its own knowledge, certainly holds an evil player. Evil players vote freely. |
 | Missions | Good players must play Success; evil players choose Success or Fail. One Fail fails the mission; only the number of Fail cards is revealed. |
 | End of game | Three failed missions: evil wins. Three successful missions: the Assassin names one player, and evil wins if that player is Merlin. |
 | Private knowledge | Merlin sees both evil players. Percival sees Merlin and Morgana as two candidates without knowing which is which. The evil players know each other. Servants know nothing extra. |
@@ -65,23 +66,26 @@ Players see only the public history and the private knowledge their role allows.
 | Slot | Content | Values | Rules |
 |---|---|---|---|
 | ① Role claim | Who I claim to be | none, Servant, Percival, Merlin | No evil role can be claimed; claims may be false |
-| ② Judgment | What I think each other player is | per player: none, good, evil, Servant, Merlin, Percival, Morgana, Assassin | Any subset of players; together with the claim, no role more often than the deck holds it (at most two players judged evil, four judged good) |
-| ③ Rationale | Why I judge so | per judged player: a mission, vote or proposal record (with its mission number), role knowledge, or no basis | Cites only finished missions and points the same way as the judgment; role knowledge must match what the claimed role can see |
+| ② Judgment | What I think each other player is | per player: none, good, evil, Servant, Merlin, Percival, Morgana, Assassin | **A judgment needs a basis:** a player can be judged good (or evil) only if some record points that way, or the claim covers the judgment (see ③). Before the first mission is finished nothing is on record, so without a claim nobody can judge anybody. Together with the claim, no role more often than the deck holds it (at most two players judged evil, four judged good) |
+| ③ Rationale | Why I judge so | per judged player: a mission, vote or proposal record (with its mission number), or role knowledge | Derived, not chosen. Role knowledge if the claim covers the judgment (a claimed Merlin on good or evil, a claimed Percival on Merlin or Morgana); otherwise the most recent finished mission's record that points the same way as the judgment |
 | ④ Team suggestion | Who should go on the mission | none, or any team of the current size | Nobody the message judges evil; the leader makes no suggestion, since its proposal follows at once |
-| ⑤ Action intent | How I will vote, and what I will do if the mission fails | per player: none; **veto** (I reject any team with them this round); **require** (I reject any team without them); **bind** (they and I go together: I reject any team with exactly one of us); **blame** (if this mission fails with them on it, I reject their teams from then on) | No veto on a player judged good, no require or bind with a player judged evil; some team of the current size, and my own suggestion if I make one, must satisfy all vote conditions |
+| ⑤ Action intent | How I will vote this round | per player: none; **veto** (I reject any team with them this round); **require** (I reject any team without them this round) | No veto on a player judged good, no require with a player judged evil; some team of the current size, and my own suggestion if I make one, must satisfy all conditions |
 
 How a record points:
 - **mission record:** the player was on mission *q*, which failed (evil) or succeeded (good);
 - **vote record:** the player approved mission *q*'s team that then failed, or rejected one that then succeeded (evil); the reverse points to good;
 - **proposal record:** the player led mission *q*'s team, which failed (evil) or succeeded (good);
-- **role knowledge:** "good" or "evil" needs a Merlin claim or no claim; "Merlin" or "Morgana" needs a Percival claim or no claim.
+- **role knowledge:** "good" or "evil" needs a Merlin claim; "Merlin" or "Morgana" needs a Percival claim.
 
-In the evil talk before the assassination, only judgments of good players as Servant, Merlin or Percival are open (with a record rationale, without role knowledge).
+In the evil talk before the assassination, only judgments of good players as Servant, Merlin or Percival are open (with a record rationale where one exists, without role knowledge); these need no basis.
+
+**No unfounded change of mind.** If a player's most recent earlier judgment of someone (in an earlier round's discussion) pointed the other way (good vs evil), a judgment in the new direction needs a record rationale that cites a mission finished since that judgment and points the new way. Without such a record the player can only keep the direction or say nothing about that player. The evil talk is exempt.
 
 **Design principles.**
 - **Lies and partial statements are allowed, contradictions are not.** The referee never checks truth, but one message must be internally consistent. For example, it cannot call two players Merlin, cite a successful mission as proof that someone is evil, or suggest a team containing a player it accuses.
-- **Messages concern the current round only.** A player may change its story later; all past messages stay public, so changing one's story is itself a signal.
-- **Two chains.** Claim → judgment → rationale is a chain of reasoning. Judgment → team suggestion → intent is a chain of action: intents announce and explain one's votes and one's reaction to a failed mission. Talk never binds actions: votes may contradict an announced intent.
+- **A speaker chooses a stance; the rules do the reasoning.** The free choices are the ones a human player makes: what to claim, whom to judge, which team to suggest, how to vote. How a judgment is justified is derived by a fixed rule, so the justification cannot turn into a private code between teammates. A judgment that nothing on record supports cannot be made at all, which is the table's "what makes you say so?" asked in advance. This rule was added after a run without it: with nothing to go on in the first discussion, good players judged three to five others anyway and evil players stayed silent, so talking early had become a password for "I am good" (`results/tables/comm_v3/`).
+- **Words bind nothing, and deeds against them are public.** As at a real table, a player may approve a team with someone it just called evil, break an announced intent, or reject the very team it suggested. Each such deed is counted in a public audit that every player sees: backing (proposing or approving) a team with a player it judged evil that round; backing a team that breaks its announced intent; rejecting exactly the team it suggested; and having vouched for a member of a team that then failed. The forced fifth proposal is not counted for voters. Rule-based players suspect whoever has such counts. A reversed judgment must still cite a new record.
+- **Two chains.** Claim → judgment → rationale is a chain of reasoning. Judgment → team suggestion → intent is a chain of action, which the audit compares with the votes and proposals that follow.
 - **Grounded rationales.** Record-based rationales must cite real events and point the same way as the judgment. There are three reasons. At a real table a distorted record is caught at once. Separating verifiable records from unverifiable role knowledge lets the analysis test whether grounded accusations persuade more. And channels with intrinsic meaning are easier to exploit than pure cheap talk [7]. Evil players can still mislead by citing true records selectively.
 - **Scope.** A message only decides *what* to say. It covers the main content of about two minutes of table talk, but not wording, tone or long arguments.
 - **Meaning is measured, not assumed.** Slot names do not guarantee that agents use them in that sense; truthfulness and listener-influence metrics (Section 7) decide what a slot means.
@@ -140,18 +144,18 @@ Every seat-indexed field is rotated into the acting player's frame, and a named 
 
 **Why the deduction fields.** They add no information; they do the logical bookkeeping that DeepRole [1] does explicitly. Without them PPO does not learn this bookkeeping: states with a logically certain evil player are rare (about 5% of good votes) and a single vote decides the outcome in only about 16% of them, so the terminal reward gives little signal for them. Since every communication configuration starts from S, a baseline without this bookkeeping would let communication look useful merely for passing on deductions.
 
-Communication configurations add a 4,729-dimensional message block: 13 global features plus 36 fixed message slots of 131 features each (one per mission and speaker, plus the evil talk). The actor and the critic each compress every message slot with a shared linear encoder (131 → 32, tanh), and the result is concatenated with the silent vector.
+Communication configurations add a 4,369-dimensional message block: 85 global features (13 for the state of the discussion and 72 for the public audit, three thresholds per count and player) plus 36 fixed message slots of 119 features each (one per mission and speaker, plus the evil talk). The actor and the critic each compress every message slot with a shared linear encoder (119 → 32, tanh), and the result is concatenated with the silent vector.
 
 **Network.**
 - Independent PPO with one actor–critic per team, shared by all seats of that team; the role is an input. The actor and the critic are separate MLPs (two layers of 256 units).
 - One 30-way action head with legal-action masking: illegal logits are set to a large negative value, and entropy is computed over legal actions only.
-- Communication configurations add 22 message heads (140 logits) in the speaker's frame:
+- Communication configurations add 22 message heads (130 logits) in the speaker's frame:
   - claim (4 values);
   - a judgment per other player (8 values);
   - a rationale type (5 values) and a mission number (5 values) per other player;
   - a team (up to 21 values, shared with the proposal encoding);
-  - an intent per other player (5 values).
-- Sampling runs in two stages. The claim and judgments come first. Rationales, team and intents follow, with their logits conditioned on the first stage through a zero-initialized linear map, and consistency masks applied throughout.
+  - an intent per other player (3 values).
+- Sampling runs in two stages. The claim and judgments come first. Rationales, team and intents follow, with their logits conditioned on the first stage through a zero-initialized linear map, and consistency masks applied throughout. A rationale head has exactly one legal value (the derived one), so it adds nothing to the log-probability.
 - The log-probability of a message is the sum over the heads used, and it enters the same PPO ratio as game actions. Every configuration keeps all heads and differs only in masks, so network capacity is identical.
 - Messages are trained RIAL-style [6] with the game reward. DIAL is not used, because listeners include opponents. The critic sees only the player's own information.
 
@@ -170,7 +174,8 @@ Communication configurations add a 4,729-dimensional message block: 13 global fe
    - the learned Assassin hits Merlin 0.32 of the time in same-seed games, against 0.36 for a vote-reading heuristic, so the heuristic would cost good about 3 points. Across seeds the heuristic falls to 0.18, below chance, because Merlin learned decoy votes against vote readers;
    - an evil team that never approves a clean team at good's match point would cost good 2–4 points.
 3. **Branching.** M, F and the M+k configurations add the message heads to each seed's frozen baseline. The adaptation method (LoRA) and the branch budget are fixed before the communication runs, and a silent control is trained the same way. New message inputs start at zero weight, so a branched network plays exactly like S at first; message heads start uniform.
-4. **Optional from-scratch control:** at least one F seed trained from scratch with the same total number of games.
+4. **Staged communication training** (`scripts/run_comm_pipeline.sh`). (a) A rule teacher (`src/agents/teacher.py`) is distilled into the message heads. (b) Listeners learn while the frozen distilled speaker talks for every learned player. (c) Speakers learn too, without an entropy bonus on messages, and two anchors keep the meaning of talk the teacher's: a KL term to the distilled speaker that falls to a floor and stays there, and the rule teacher itself speaking for a share of the seats of either team in every game. In (b) and (c) a quarter of the games put logic partners (`src/agents/logic_agent.py`, exact deduction, no convention) in one or two Servant or Percival seats, so that actions too have to make sense to a player outside the training run. The reward stays the game result throughout.
+5. **Optional from-scratch control:** at least one F seed trained from scratch with the same total number of games.
 
 **Communication diagnostics.**
 - **Toy check:** as in RLupus [5], fix evil to the rule player and train only good players to talk in M. If Merlin's judgments still do not raise good's win rate, look for an implementation error first.
@@ -190,7 +195,7 @@ Communication configurations add a 4,729-dimensional message block: 13 global fe
 
 **RQ1 Game balance.**
 - **Primary metric:** ΔGood = P(good wins | F → F) − P(good wins | S → S). Positive means communication favors good in this setting; adjacent differences on the ladder are reported too. 50% is only a symmetry reference, not a target for an asymmetric game.
-- **Cross-seed evaluation.** Self-play learns conventions that only work inside one training population. In S, good wins 0.46 against its own seed's evil but 0.65 against other seeds' evil. Every configuration therefore reports a 3 × 3 matrix of good *i* against evil *j* (1,000 paired games per cell), and ΔGood is given on same-seed games (the diagonal) and cross-seed games (off the diagonal). Seeds are crossed only in evaluation, never in training.
+- **Cross-seed evaluation.** Self-play learns conventions that only work inside one training population. In S, good wins 0.50 against its own seed's evil but 0.67 against other seeds' evil (0.46 and 0.65 without the vote guard, which S was trained without; `results/tables/baseline_silent_guard.json`). Every configuration therefore reports a 3 × 3 matrix of good *i* against evil *j* (1,000 paired games per cell), and ΔGood is given on same-seed games (the diagonal) and cross-seed games (off the diagonal). Seeds are crossed only in evaluation, never in training.
 - **Decomposition:** P(good wins) = P(three successes) × [1 − P(Assassin hits Merlin | three successes)]. Evil wins by three failures and by five rejections are reported separately. Assassination accuracy is computed only over games that reach the assassination; a random guess among the four good players hits 25%. Mission success is reported by mission number, and missions that never happen are not counted as failures.
 
 **RQ2 Strategic behavior.**
@@ -339,7 +344,7 @@ Other options: `--port 8766` if the port is taken; `--lan` to listen on all inte
 
 The networks are small, so rollouts run on the CPU in worker processes (`workers` in the config; `src/training/workers.py`) and the PPO update runs on the GPU when there is one. Measured on a laptop with a Ryzen 9 8945HX (16 cores) and an RTX 5070 Ti, including evaluation and checkpoints:
 - **Silent baseline:** three S seeds with 8 workers each take about 2 s per iteration, so the 19,532-iteration baseline takes about 11 h.
-- **Communication configurations:** these add up to 32 speaking decisions per game and a 4,729-dimensional message block to every observation. Six runs in parallel (M and F × 3 seeds) with 4 workers each take about 9.7 s per iteration.
+- **Communication configurations:** these add up to 32 speaking decisions per game and a 4,369-dimensional message block to every observation. Six runs in parallel (M and F × 3 seeds) with 4 workers each take about 9.7 s per iteration.
 - **GPU stability:** with NVIDIA driver 581.42 that GPU faulted when several runs updated on it at once. With driver 621.01 six parallel runs had no faults. A run that crashes continues from its latest checkpoint with `--resume`.
 
 ## Key References
