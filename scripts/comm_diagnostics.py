@@ -1,7 +1,7 @@
 """Communication diagnostics: is talk informative, is it used, and does the learning signal reach it?
 
-    python scripts/comm_diagnostics.py --checkpoint runs/comm_F3/stage3b_F/seed0/checkpoint_01000.pt --out d.json
-    python scripts/comm_diagnostics.py --branch baseline/seed0/checkpoint_19532.pt --config configs/comm_F.yaml --out d0.json
+    python scripts/comm_diagnostics.py --checkpoint runs/comm/talk/seed0/checkpoint_01000.pt --out d.json
+    python scripts/comm_diagnostics.py --branch baseline/seed0/checkpoint_19532.pt --config configs/comm.yaml --out d0.json
 
 `--branch` builds the communication network exactly as training does at the branch point (silent weights,
 zero weights on every message input and output). `--speaker` lets another checkpoint's frozen networks do all

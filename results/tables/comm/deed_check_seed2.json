@@ -1,0 +1,79 @@
+{
+ "checkpoint": "runs/comm_F3c/stage3b_F/seed2/checkpoint_01000.pt",
+ "games": 300,
+ "good_win": 0.34,
+ "phases": [
+  "ASSASSINATE",
+  "DISCUSS",
+  "EVIL_DISCUSS",
+  "PROPOSE",
+  "QUEST",
+  "VOTE"
+ ],
+ "roles_example": [
+  "SERVANT",
+  "SERVANT",
+  "MERLIN",
+  "ASSASSIN",
+  "PERCIVAL",
+  "MORGANA"
+ ],
+ "stabs_per_game": 0.523,
+ "assassin_named_someone": 1.0,
+ "stab_is_the_named": 1.0,
+ "stab_hits_merlin": 0.35,
+ "evil_pair_name_same": 0.49,
+ "fifth_proposals_per_game": 0.657,
+ "own_proposal_unwanted_by_attempt": {
+  "0": [
+   0.307,
+   1326
+  ],
+  "1": [
+   0.338,
+   663
+  ],
+  "2": [
+   0.411,
+   343
+  ],
+  "3": [
+   0.422,
+   268
+  ],
+  "4": [
+   0.01,
+   197
+  ]
+ },
+ "good": {
+  "own_proposal_unwanted": 0.401,
+  "teams_allowed_per_proposal": 4.318,
+  "teams_without_words_per_proposal": 17.193,
+  "proposal_has_evil": 0.649,
+  "unbound_first_choice_differs": 0.506,
+  "leader_proposes_team_it_suggested": [
+   0.622,
+   336
+  ],
+  "votes_forced_by_words": 0.147,
+  "of_those_against_wish": 0.68,
+  "votes_forced_fifth": 0.058,
+  "votes_forced_dirty": 0.091
+ },
+ "evil": {
+  "own_proposal_unwanted": 0.146,
+  "teams_allowed_per_proposal": 4.989,
+  "teams_without_words_per_proposal": 17.259,
+  "proposal_has_evil": 1.0,
+  "unbound_first_choice_differs": 0.531,
+  "leader_proposes_team_it_suggested": [
+   0.578,
+   301
+  ],
+  "votes_forced_by_words": 0.168,
+  "of_those_against_wish": 0.492,
+  "votes_forced_fifth": 0.0,
+  "votes_forced_dirty": 0.0
+ }
+}

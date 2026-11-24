@@ -4,7 +4,7 @@ Each iteration plays `games_per_iter` games, turns the learning players' decisio
 batch per team, and updates the good and the evil network separately (so the 4-vs-2 team sizes
 never weight each other's losses). Metrics go to <run_dir>/metrics.jsonl, one JSON object per line.
 A communication configuration normally starts from a silent checkpoint (`init_from`, the branch point):
-the silent weights are embedded so that the network initially plays exactly like S and ignores messages.
+the silent weights are embedded so that the network initially plays exactly like the silent baseline and ignores messages.
 """
 from __future__ import annotations
 

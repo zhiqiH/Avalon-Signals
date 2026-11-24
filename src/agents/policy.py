@@ -183,7 +183,7 @@ def load_silent_weights(net: ActorCritic, silent_state: dict[str, torch.Tensor])
 
 
 def is_legacy_state(state: dict[str, torch.Tensor]) -> bool:
-    """Whether a communication network's weights predate the reply and promise slots (configurations F, F2)."""
+    """Whether a communication network's weights predate the reply and promise slots."""
     w = state.get("actor_msg.weight")
     return w is not None and w.shape[1] == LEGACY["msg_feat_dim"]
 

@@ -163,7 +163,7 @@ def test_distilled_network_plays_exactly_like_the_silent_one(tmp_path):
     out = tmp_path / "distill"
     root = Path(__file__).resolve().parents[1]
     subprocess.run([sys.executable, str(root / "scripts/distill_speaker.py"), "--baseline", str(base),
-                    "--config", str(root / "configs/comm_F.yaml"), "--games", "12", "--epochs", "2", "--out", str(out)],
+                    "--config", str(root / "configs/comm.yaml"), "--games", "12", "--epochs", "2", "--out", str(out)],
                    check=True, cwd=root, capture_output=True)
     ck = load_checkpoint(out / "checkpoint_00000.pt")
     assert ck["config"]["comm"]["enabled"]
@@ -189,11 +189,11 @@ def test_rule_players_suspect_whoever_acted_against_its_words():
     assert public_suspicion(game).tolist() == [0, 0, 2 * BROKEN_WORD, 2 * FAILED_VOUCH, 0, 0]
 
 
-F3 = P.CommConfig(enabled=True, reply=True, promise=True)
+SEVEN = P.CommConfig(enabled=True, reply=True, promise=True)
 
 
 def test_teacher_replies_and_promises_follow_what_the_speaker_knows():
-    games, log = play_with_teacher(F3, n=120, knowledge=1.0)
+    games, log = play_with_teacher(SEVEN, n=120, knowledge=1.0)
     assert all(g.done for g in games)
     assert not any(g.audit[:, [P.A_JUDGE, P.A_INTENT, P.A_TEAM, P.A_REPLY, P.A_PROMISE]].any() for g in games)
     counts = {"endorse": 0, "dispute": 0, "promise": 0}

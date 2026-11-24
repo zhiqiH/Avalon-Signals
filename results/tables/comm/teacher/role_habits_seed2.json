@@ -1,0 +1,34 @@
+{
+ "checkpoint": "runs/comm_F3c/stage3b_F/seed2/checkpoint_01000.pt",
+ "games": 5000,
+ "variant": "none",
+ "good_win": 0.2772,
+ "three_successes": 0.4888,
+ "hit": {
+  "Merlin own, Percival own": {
+   "rate": 0.3626,
+   "k": 334,
+   "n": 921
+  },
+  "Merlin own, Percival teacher": {
+   "rate": 0.5255,
+   "k": 278,
+   "n": 529
+  },
+  "Merlin teacher, Percival own": {
+   "rate": 0.4201,
+   "k": 263,
+   "n": 626
+  },
+  "Merlin teacher, Percival teacher": {
+   "rate": 0.4973,
+   "k": 183,
+   "n": 368
+  },
+  "all": {
+   "rate": 0.4329,
+   "k": 1058,
+   "n": 2444
+  }
+ }
+}

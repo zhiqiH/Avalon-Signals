@@ -1,0 +1,1 @@
+{"checkpoint": "runs/comm_F3c/stage3b_F/seed2/checkpoint_01000.pt", "stabs": 1102, "hit": 0.355, "good_players_marked_not_merlin": 0.297, "stab_lands_on_marked": 0.264, "unmarked_good_per_game": 2.81, "hit_if_stab_uniform_over_unmarked": Infinity}

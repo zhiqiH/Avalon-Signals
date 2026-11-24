@@ -1,0 +1,116 @@
+{
+ "checkpoint": "runs/comm_F3c/stage3b_F/seed1/checkpoint_01000.pt",
+ "games": 2000,
+ "good_win": 0.3785,
+ "assassin_hit_given_stab": 0.3463,
+ "top1_all": 0.456,
+ "weights_all": {
+  "accuse_evil": 0.37,
+  "accuse_good": -0.33,
+  "vouch_evil": -0.35,
+  "vouch_good": -0.58,
+  "team_with_evil": -0.87,
+  "team_clean": -0.01,
+  "no_team": -0.07,
+  "veto_evil": 0.04,
+  "veto_good": -0.39,
+  "require_evil": -0.69,
+  "require_good": 0.86,
+  "endorse_evil": -0.24,
+  "endorse_good": -0.08,
+  "dispute_evil": 0.08,
+  "dispute_good": -0.05,
+  "failevil_evil": 0.21,
+  "failevil_good": -0.47,
+  "succgood_evil": -0.04,
+  "succgood_good": 0.4
+ },
+ "top1_only_judgments": 0.323,
+ "top1_without_judgments": 0.433,
+ "top1_only_team": 0.368,
+ "top1_without_team": 0.434,
+ "top1_only_intents": 0.324,
+ "top1_without_intents": 0.43,
+ "top1_only_replies": 0.291,
+ "top1_without_replies": 0.46,
+ "top1_only_promises": 0.348,
+ "top1_without_promises": 0.428,
+ "per_message": {
+  "accuse_evil": [
+   0.105,
+   0.07
+  ],
+  "accuse_good": [
+   0.035,
+   0.052
+  ],
+  "vouch_evil": [
+   0.044,
+   0.047
+  ],
+  "vouch_good": [
+   0.144,
+   0.141
+  ],
+  "team_with_evil": [
+   0.052,
+   0.099
+  ],
+  "team_clean": [
+   0.08,
+   0.061
+  ],
+  "no_team": [
+   0.696,
+   0.677
+  ],
+  "veto_evil": [
+   0.027,
+   0.014
+  ],
+  "veto_good": [
+   0.0,
+   0.001
+  ],
+  "require_evil": [
+   0.0,
+   0.001
+  ],
+  "require_good": [
+   0.021,
+   0.01
+  ],
+  "endorse_evil": [
+   0.147,
+   0.176
+  ],
+  "endorse_good": [
+   0.219,
+   0.215
+  ],
+  "dispute_evil": [
+   0.063,
+   0.053
+  ],
+  "dispute_good": [
+   0.048,
+   0.041
+  ],
+  "failevil_evil": [
+   0.141,
+   0.118
+  ],
+  "failevil_good": [
+   0.096,
+   0.137
+  ],
+  "succgood_evil": [
+   0.139,
+   0.144
+  ],
+  "succgood_good": [
+   0.224,
+   0.211
+  ]
+ }
+}

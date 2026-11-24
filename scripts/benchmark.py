@@ -1,11 +1,11 @@
 """Measure simulation and update throughput on the current machine before choosing budget B.
 
     python scripts/benchmark.py --games 2048 --device cuda
-    python scripts/benchmark.py --games 512 --comm F --device cuda   # full five-slot communication
+    python scripts/benchmark.py --games 512 --comm comm --device cuda   # with the discussion
 
 Reports (1) random-vs-random games per second (pure engine), (2) self-play rollout speed with the
 policy network, and (3) PPO update time for one iteration's batch on the chosen device. --comm picks a
-communication configuration: S (silent, default), M (alignment + rationale) or F (all five slots).
+configuration: silent (default) or comm (the seven-slot discussion of configs/comm.yaml).
 """
 from __future__ import annotations
 
@@ -31,13 +31,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--games", type=int, default=2048)
     parser.add_argument("--device", default="cpu", help="device for the PPO update")
-    parser.add_argument("--comm", default="S", choices=["S", "M", "F"])
+    parser.add_argument("--comm", default="silent", choices=["silent", "comm"])
     parser.add_argument("--threads", type=int)
     args = parser.parse_args()
     if args.threads:
         torch.set_num_threads(args.threads)
-    comm = {"S": CommConfig(), "M": CommConfig(enabled=True, claim=False, team=False, intent=False),
-            "F": CommConfig(enabled=True)}[args.comm]
+    comm = {"silent": CommConfig(),
+            "comm": CommConfig(enabled=True, reply=True, promise=True, team_optional=True, merlin_may_accuse_good=True,
+                               teacher_hides_roles=True)}[args.comm]
     rng = np.random.default_rng(0)
     torch.manual_seed(0)
 

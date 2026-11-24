@@ -1,6 +1,6 @@
 """Team dialect probe: does a single public message give away its speaker's team, and how?
 
-    python scripts/dialect_probe.py runs/comm_v3/stage3b_M/seed*/checkpoint_01000.pt --out results/tables/dialect.json
+    python scripts/dialect_probe.py runs/comm/talk/seed*/checkpoint_01000.pt --out results/tables/comm/dialect_probe.json
 
 Each checkpoint plays same-seed self-play with paired seating. Every message of the public discussions is one
 sample; a logistic probe predicts "the speaker is evil" and is scored by held-out log-loss gain over the base

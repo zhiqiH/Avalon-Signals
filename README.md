@@ -58,7 +58,7 @@ Players see only the public history and the private knowledge their role allows.
 
 ## 4 Communication Design
 
-The final protocol is configuration **F3** (`configs/comm_F3.yaml`); the full rules are in `src/comm/protocol.py`.
+The talking agents are called **Comm**, the silent ones **Silent**. Comm's protocol is set in `configs/comm.yaml`; the full rules are in `src/comm/protocol.py`.
 
 **Timing** follows common tabletop play.
 - Every mission opens with one round of public discussion before its first proposal. Players speak once each in seat order, starting left of the leader, and the leader speaks last. Then the leader proposes and everyone votes.
@@ -109,7 +109,7 @@ Voters are free on the forced fifth proposal of a mission, and the good players'
 - **Human seats are free.** A human at the table is bound by none of this: no rule limits what the human says or does. Deeds against one's own words are counted in public for such a seat (a mark every player sees) instead of being prevented.
 - **Scope.** A message decides *what* is said. It covers the main content of about two minutes of table talk, but not wording, tone or long arguments.
 
-**Earlier versions.** *F* had the first five slots, and words bound nothing: deeds against them were only counted. *F2* made words bind deeds and required team suggestions to be clean by the record. *F3* added replies and promises, made the team suggestion optional, and lifted a rule that forbade Merlin to accuse a player he knew to be good (with promises, that rule let the evil team rule out as Merlin whoever promised to accuse a good player). Results of each version are in `results/tables/`.
+**How the protocol got here.** It was reached in steps: five slots whose words bound nothing, then five slots with words that bind deeds, then the seven slots above, with the team suggestion made optional and without a rule that forbade Merlin to accuse a player he knew to be good (with promises, that rule let the evil team rule out as Merlin whoever promised to accuse a good player). The earlier versions, their configurations and their results are in the git history (tag `f3-2026-11-24`).
 
 ## 5 Experimental Design
 
@@ -117,9 +117,8 @@ Voters are free on the forced fifth proposal of a mission, and the good players'
 
 | Config | Slots | Words and deeds | Purpose |
 |---|---|---|---|
-| S | none | | Silent baseline: self-play PPO, frozen at 10 million games per seed |
-| F2 | ①–⑤, every non-leader suggests a team | bound | Earlier version; starting point of F3 |
-| F3 | ①–⑦, every slot optional | bound | Final protocol |
+| Silent (`configs/baseline_silent.yaml`) | none | | Silent baseline: self-play PPO, frozen at 10 million games per seed |
+| Comm (`configs/comm.yaml`) | ①–⑦, every slot optional | bound | The talking agents, trained from the frozen baseline |
 
 **Evaluations of a trained talking agent** (frozen policies, no learning, 3 seeds).
 
@@ -133,16 +132,16 @@ Voters are free on the forced fifth proposal of a mission, and the good players'
 | Leak probes | Which statements let an observer pick Merlin; assassination accuracy by who speaks for each seat | What talk exposes (RQ3) |
 | Logic partners | One to three good seats played by a deduction player with the rule teacher's speech | Acceptance check: play next to a partner with plain human logic |
 | Human test | One human and five agents in the browser, the human unbound | Acceptance check: play with people |
-| Silent play with a foreign partner | S with one good seat from another seed | Whether public actions carry a private signal (RQ2) |
+| Silent play with a foreign partner | Silent with one good seat from another seed | Whether public actions carry a private signal (RQ2) |
 
-- **Controls:** S, F2 and F3 share the game rules, network size, algorithm and hyperparameters. The training seed is the unit of replication, with 3 seeds. Each talking configuration starts from the same seed's earlier network (F2 from S, F3 from F2), with the new parts at zero weight, so it starts by playing exactly like its predecessor.
+- **Controls:** Silent and Comm share the game rules, network size, algorithm and hyperparameters. The training seed is the unit of replication, with 3 seeds. Each seed's Comm network starts from the same seed's Silent network, with the new parts at zero weight, so it starts by playing exactly like the baseline.
 - **No test-time opening of the channel:** a silent policy has never seen messages, so letting it talk at test time is meaningless.
 - **No slot ablations:** see Section 1.
 
 ## 6 Training
 
 **Environment.**
-- A custom six-player state machine (six players and structured talk both need custom rules). Phase order: roles → discussion (communication configurations only) → proposal → vote → mission or next leader → three successes or three failures → evil talk (communication configurations only) → assassination → result.
+- A custom six-player state machine (six players and structured talk both need custom rules). Phase order: roles → discussion (Comm only) → proposal → vote → mission or next leader → three successes or three failures → evil talk (Comm only) → assassination → result.
 - One flat 30-way action space for all phases, in seat-relative coordinates (0 is the acting player), so one network serves every seat:
   - 20 proposal actions, enumerating every legal team of the current size (C(6,2) = 15, C(6,3) = 20, C(6,4) = 15);
   - then approve/reject, Success/Fail (only evil players may play Fail), and the assassination target (the four players other than the two evil ones).
@@ -158,14 +157,14 @@ Voters are free on the forced fifth proposal of a mission, and the good players'
 
 Every seat-indexed field is rotated into the acting player's frame, and a named index (`LAYOUT`) locates each field. Because the history is bounded, this vector is a complete information state, so plain MLPs suffice: no recurrence, no BPTT, and RQ2 interventions can edit the vector directly (the deduction fields must then be recomputed from the edited mission history).
 
-**Why the deduction fields.** They add no information; they do the logical bookkeeping that DeepRole [1] does explicitly. Without them PPO does not learn this bookkeeping: states with a logically certain evil player are rare (about 5% of good votes) and a single vote decides the outcome in only about 16% of them, so the terminal reward gives little signal for them. Since every communication configuration starts from S, a baseline without this bookkeeping would let communication look useful merely for passing on deductions.
+**Why the deduction fields.** They add no information; they do the logical bookkeeping that DeepRole [1] does explicitly. Without them PPO does not learn this bookkeeping: states with a logically certain evil player are rare (about 5% of good votes) and a single vote decides the outcome in only about 16% of them, so the terminal reward gives little signal for them. Since Comm starts from Silent, a baseline without this bookkeeping would let communication look useful merely for passing on deductions.
 
-Communication configurations add a message block (5,919 dimensions in F3): 123 global features (15 for the state of the discussion and 108 for the public counts of deeds against words, three thresholds per count and player) plus 36 fixed message slots of 161 features each (one per mission and speaker, and one per speaker of the evil talk), rotated into the observer's frame.
+Comm adds a message block (5,919 dimensions): 123 global features (15 for the state of the discussion and 108 for the public counts of deeds against words, three thresholds per count and player) plus 36 fixed message slots of 161 features each (one per mission and speaker, and one per speaker of the evil talk), rotated into the observer's frame.
 
 **Network.**
 - Independent PPO with one actor–critic per team, shared by all seats of that team; the role is an input. The actor and the critic are separate MLPs (two layers of 256 units).
 - One 30-way action head with legal-action masking: illegal logits are set to a large negative value, and entropy is computed over legal actions only.
-- Communication configurations add message heads in the speaker's frame (F3: 37 heads, 180 logits):
+- Comm adds message heads in the speaker's frame (37 heads, 180 logits):
   - claim (4 values);
   - a judgment per other player (8 values);
   - a rationale type (5 values) and a mission number (5 values) per other player;
@@ -181,23 +180,29 @@ Communication configurations add a message block (5,919 dimensions in F3): 123 g
 - Win +1, loss −1, no intermediate reward; γ = 1 with GAE (λ = 0.95) [9]. There is no reward shaping for honesty, signaling or concealment.
 - The two teams' losses are summed separately, so the 4-vs-2 team sizes never weight each other.
 - Switched-off slots, forced silence and other forced actions do not enter the actor loss.
-- Hyperparameters are shared by every configuration and were set from the PPO and MAPPO defaults [9, 10]: learning rate 3e-4, 4 epochs, minibatch 2,048, clip 0.2, value coefficient 0.5, entropy coefficient 0.01, gradient norm 0.5, normalized advantages, 512 games per iteration.
+- Hyperparameters are shared by Silent and Comm and were set from the PPO and MAPPO defaults [9, 10]: learning rate 3e-4, 4 epochs, minibatch 2,048, clip 0.2, value coefficient 0.5, entropy coefficient 0.01, gradient norm 0.5, normalized advantages, 512 games per iteration.
 
 **Opponents.** In each training game, both teams use the current policies (50%), or one team is replaced by a past snapshot (25%) or by the rule-based player (25%). A snapshot is added every 10 iterations, and the pool keeps 20 per team. Only current policies learn. Rule players say nothing and ignore messages, so they are a fixed reference.
 
 **Training pipeline.**
-1. **Silent baseline.** Train S until its win rates against rule players are stable (gate 1: the mean over the last ~100k games differs from the previous ~100k by less than 0.02). No communication configuration is trained until S passes.
-2. **Frozen baseline.** S is frozen at 10,000,384 games (19,532 iterations) per seed: `baseline/seed{0,1,2}/checkpoint_19532.pt`, tracked in git with the run's configuration, metrics and run info. Its win rates against rule players are flat over the last several million games, and its evaluation is in `results/tables/baseline_silent_final.json`. Remaining weaknesses were measured by replacing one behavior at test time:
+1. **Silent baseline.** Train Silent until its win rates against rule players are stable (gate 1: the mean over the last ~100k games differs from the previous ~100k by less than 0.02). Comm is not trained until Silent passes.
+2. **Frozen baseline.** Silent is frozen at 10,000,384 games (19,532 iterations) per seed: `baseline/seed{0,1,2}/checkpoint_19532.pt`, tracked in git with the run's configuration, metrics and run info. Its win rates against rule players are flat over the last several million games, and its evaluation is in `results/tables/baseline_silent_final.json`. Remaining weaknesses were measured by replacing one behavior at test time:
    - masking the good players' residual deduction errors moves the good win rate by less than 1 point;
    - the learned Assassin hits Merlin 0.32 of the time in same-seed games, against 0.36 for a vote-reading heuristic, so the heuristic would cost good about 3 points. Across seeds the heuristic falls to 0.18, below chance, because Merlin learned decoy votes against vote readers;
    - an evil team that never approves a clean team at good's match point would cost good 2–4 points.
-3. **Branching.** A talking configuration adds its message inputs and heads to the network it starts from (F2: each seed's frozen S; F3: each seed's F2). New inputs and heads start at zero weight, so the branched network plays exactly like its predecessor at first. The actor changes only through low-rank updates (LoRA, rank 8); the new message parts and the critic train fully.
+3. **Branching.** Comm adds its message inputs and heads to each seed's frozen Silent network. New inputs and heads start at zero weight, so the branched network plays exactly like the baseline at first. The actor changes only through low-rank updates (LoRA, rank 8); the new message parts and the critic train fully.
 4. **Staged communication training** (`scripts/run_comm_pipeline.sh`), three stages:
    1. **Distillation** (4,000 games per seed, minutes). A hand-written rule teacher (`src/agents/teacher.py`) speaks; its messages are fitted into the message heads by supervised learning. The network now talks like the teacher, plays as before and does not listen yet. Reinforcement learning from a blank speaker ended in talk that only training partners understood.
-   2. **Listening** (300 iterations). The speaker is frozen and only listening and acting are trained. With fixed talk of known meaning, listeners have a stable target. If both sides changed from the start, listeners would first learn to ignore talk and speakers would then have no reason to mean anything.
-   3. **Anchored talk** (1,000 iterations). Speakers learn too, without an entropy bonus on messages. Two anchors hold the meaning of talk in place: a KL penalty towards the distilled speaker, whose weight falls from 0.1 to 0.03 and stays there, and the rule teacher itself speaking for 40% of the seats, so that listeners keep hearing talk with the teacher's meaning and no code can rely on who is speaking.
+   2. **Listening** (153,600 games). The speaker is frozen and only listening and acting are trained. With fixed talk of known meaning, listeners have a stable target. If both sides changed from the start, listeners would first learn to ignore talk and speakers would then have no reason to mean anything.
+   3. **Anchored talk** (512,000 games, and more in the same way if wanted). Speakers learn too, without an entropy bonus on messages. Two anchors hold the meaning of talk in place: a KL penalty towards the distilled speaker, whose weight falls from 0.1 to 0.03 and stays there, and the rule teacher itself speaking for 40% of the seats, so that listeners keep hearing talk with the teacher's meaning and no code can rely on who is speaking.
    In stages 2 and 3 a quarter of the games put a logic partner (`src/agents/logic_agent.py`), a player that deduces from the record as a person would, in one or two good seats.
-5. **What the rule teacher is.** It gives every speaker "a good player's view" of the table (public suspicion plus what the mission results make certain) and speaks from it: accuse on about two records against a player, vouch on two records for, suggest the cleanest team, endorse a team close to one's own best, promise what one would then say anyway. Evil players speak from the same view except about their teammate, so the teacher favors neither team.
+5. **What the rule teacher is.** It gives every speaker "a good player's view" of the table (public suspicion plus what the mission results make certain) and speaks from it: accuse on about two records against a player, vouch on two records for, suggest the cleanest team, endorse a team close to one's own best, promise what one would then say anyway. Evil players speak from the same view except about their teammate, so the teacher favors neither team. It speaks for Merlin and Percival as for a Servant, by the public record alone: an earlier teacher let Percival lean towards his two candidates and Merlin use what he knows, and the learned Assassin came to read both (Section 8).
+6. **How the networks of Section 8 were trained.** Not in one pass of the pipeline, but in three steps that followed the protocol's history (Section 4), 1,843,200 games per seed on top of the baseline:
+   - a pass with the first five slots (153,600 games of listening, 512,000 of anchored talk);
+   - a second pass from those networks with all seven slots (again 153,600 and 512,000 games), the parts for replies and promises starting at zero weight;
+   - 512,000 more games of anchored talk after the teacher stopped showing roles, with the speaker anchor distilled again from that teacher and the KL weight at 0.03.
+
+   One pass from the baseline with `configs/comm.yaml` is the recipe for a new run; it has not been run in that form.
 
 **Communication diagnostics** (`scripts/comm_diagnostics.py`, `scripts/dialect_probe.py`, `scripts/trace_game.py`).
 - **Talk, babble, silence:** the same frozen policies with learned talk, with random legal messages, and with every slot silenced.
@@ -208,15 +213,15 @@ Communication configurations add a message block (5,919 dimensions in F3): 123 g
 
 **Frozen evaluation.**
 - Each seed plays 2,000 games per condition (1,000 per pair in cross-seed play).
-- Conditions per seed: S; F3 with talk, with every slot silenced, and with one to three logic partners; the same for F2.
+- Conditions per seed: Silent; Comm with talk, with every slot silenced, and with one to three logic partners.
 - All conditions share the role assignments and first leaders, and policy sampling uses a separate stream fixed by the evaluation seed, so results are exactly reproducible. There are no training updates and no memory across games.
 
 **RQ1 Game balance.**
-- **Primary metric:** ΔGood = P(good wins | F3) − P(good wins | S). Positive means communication favors good in this setting; F2 is reported next to it. 50% is only a symmetry reference, not a target for an asymmetric game.
-- **Cross-seed evaluation.** Self-play learns conventions that only work inside one training population. In S, good wins 0.50 against its own seed's evil but 0.67 against other seeds' evil (0.46 and 0.65 without the vote guard, which S was trained without; `results/tables/baseline_silent_guard.json`). Every configuration therefore reports a 3 × 3 matrix of good *i* against evil *j* (1,000 paired games per cell), and ΔGood is given on same-seed games (the diagonal) and cross-seed games (off the diagonal). Seeds are crossed only in evaluation, never in training.
+- **Primary metric:** ΔGood = P(good wins | Comm) − P(good wins | Silent). Positive means communication favors good in this setting. 50% is only a symmetry reference, not a target for an asymmetric game.
+- **Cross-seed evaluation.** Self-play learns conventions that only work inside one training population. In Silent, good wins 0.50 against its own seed's evil but 0.67 against other seeds' evil (0.46 and 0.65 without the vote guard, which Silent was trained without; `results/tables/baseline_silent_guard.json`). Both configurations therefore report a 3 × 3 matrix of good *i* against evil *j* (1,000 paired games per cell), and ΔGood is given on same-seed games (the diagonal) and cross-seed games (off the diagonal). Seeds are crossed only in evaluation, never in training.
 - **Decomposition:** P(good wins) = P(three successes) × [1 − P(Assassin hits Merlin | three successes)]. Evil wins by three failures and by five rejections are reported separately. Assassination accuracy is computed only over games that reach the assassination; a random guess among the four good players hits 25%. Mission success is reported by mission number, and missions that never happen are not counted as failures.
 
-**RQ2 Implicit signaling.** S is the object: without an explicit channel, public actions are the only way to pass information. The evidence is the difference between same-seed and cross-seed play (S: good wins 0.50 against its own seed's evil and 0.67 against another seed's), and a test in which one good Servant comes from another seed: if its teammates treat a good player who votes and proposes "with a foreign accent" like an evil one, their reading of public actions is a convention of the training population. The question is whether such a channel exists; decoding it is out of scope.
+**RQ2 Implicit signaling.** Silent is the object: without an explicit channel, public actions are the only way to pass information. The evidence is the difference between same-seed and cross-seed play (good wins 0.50 against its own seed's evil and 0.67 against another seed's), and a test in which one good Servant comes from another seed: if its teammates treat a good player who votes and proposes "with a foreign accent" like an evil one, their reading of public actions is a convention of the training population. The question is whether such a channel exists; decoding it is out of scope.
 
 **RQ3 Concealment.**
 
@@ -247,20 +252,27 @@ Communication configurations add a message block (5,919 dimensions in F3): 123 g
 
 ## 8 State on 2026-11-24 and Scope
 
-**Results so far** (3 seeds, 2,000 games per seed and condition; tables in `results/tables/`, figures in `results/figures/`).
+**Results so far** (3 seeds, 2,000 games per seed and condition; tables in `results/tables/comm/`, figures in `results/figures/`).
 
-| | S | F2 | F3 |
-|---|---|---|---|
-| Good win, same seed (seeds 0 / 1 / 2) | 0.50 (mean) | 0.455 / 0.384 / 0.357 | 0.412 / 0.386 / 0.317 |
-| Good win, cross-seed (mean) | 0.67 | 0.578 | 0.530 |
-| Three successful missions | | 0.658 / 0.582 / 0.539 | 0.608 / 0.602 / 0.517 |
-| Assassin hits Merlin after three successes | 0.32 | 0.310 / 0.340 / 0.338 | 0.322 / 0.360 / 0.388 |
-| Good win with one logic partner | | 0.351 / 0.347 / 0.273 | 0.325 / 0.265 / 0.257 |
-| Deeds against one's own words | | none | none |
+| | Silent | Comm (seeds 0 / 1 / 2) |
+|---|---|---|
+| Good win, same seed | 0.50 (mean) | 0.392 / 0.400 / 0.354 |
+| Good win, cross-seed (mean) | 0.67 | 0.555 |
+| Three successful missions | | 0.574 / 0.597 / 0.553 |
+| Assassin hits Merlin after three successes | 0.32 | 0.318 / 0.329 / 0.360 |
+| Good win with every slot silenced at test time | | 0.538 / 0.578 / 0.417 |
+| Good win with one logic partner | | 0.312 / 0.329 / 0.247 |
+| Deeds against one's own words | | none |
 
-- In F3, Merlin learned to cover himself: 73–80% of his accusations are right (100% in F2, where the rule forced it), and from the statements alone an observer picks him less often than in F2 (0.50–0.58 against 0.60–0.61; chance is 0.25).
-- Under the evaluation above, F3's assassination accuracy has been flat since about 400 iterations of anchored talk (`results/figures/comm_F3_by_checkpoint.png`).
-- **Open problem.** The rule teacher shows role knowledge in two habits that the learned speakers have dropped: its Percival vouches for Merlin, and its Merlin never suggests or endorses a team with an evil player. The learned Assassin reads both: at tables where the teacher speaks for 40% of the seats it hits Merlin 0.46 of the time instead of 0.38, and 0.39 once both habits are removed from the teacher, with the same networks (`results/tables/comm_F3/teacher_*`). The teacher is to be changed before further training.
+- **Balance (RQ1).** With Comm, good wins less often than in Silent, in same-seed and in cross-seed play. The same networks with every slot silenced win more often as good than with talk.
+- **Merlin covers himself (RQ3).** 71–76% of his accusations are right, and from the statements alone an observer picks him among the four good players 0.39–0.46 of the time (chance is 0.25).
+- **The teacher used to give Merlin away (RQ3).** While the rule teacher still showed role habits and spoke for 40% of the seats, the Assassin's accuracy in training games rose to 0.44–0.49, against 0.32–0.39 where every seat spoke for itself. Since the teacher speaks by the record alone, the two agree (`results/figures/comm_training_play.png`). With the final networks the Assassin hits 0.35 at tables where today's teacher speaks for 40% of the seats and 0.34 where it speaks for none, but 0.40 with the earlier teacher, and 0.47 in the games where that teacher speaks for Percival (`results/tables/comm/teacher/`). The Assassin still reads a Percival who vouches for Merlin.
+- **More training of the same kind changes little.** Over the last 512,000 games of anchored talk the good win rate stayed at 0.36–0.38 and the Assassin's accuracy at 0.33–0.36, pooled over seeds (`results/figures/comm_by_checkpoint.png`, `results/tables/comm/by_checkpoint/`; file numbers are iterations of 512 games).
+- **Seeds differ.** Good wins 0.38 against its own seed's evil and 0.56 against another seed's, as in Silent. The tests of RQ2 have so far been run on Silent only.
+
+The checkpoint paths inside the result tables name the local run directories of the training steps (Section 6).
+
+**Not done yet.** The RQ2 tests on Comm; the language layer (Section 9); the human test with talk.
 
 **Scope of conclusions.**
 - Conclusions hold only for the defined slots, value ranges, roles and learned policies. Structured messages are not free discussion; claims about natural language need a separate natural-language experiment.
@@ -288,8 +300,9 @@ The browser table of the human test (one human, five agents, replies and promise
 │   ├── evaluation/          Paired frozen evaluation, win-rate decomposition, message statistics
 │   ├── runner.py            Plays many games in lockstep with batched decisions
 │   └── config.py            YAML-backed training configuration
-├── baseline/                Frozen silent baseline S: seed0-2 checkpoints (10,000,384 games) with config, metrics and run info
-├── configs/                 baseline_silent.yaml (S), comm_F.yaml (F2), comm_F3.yaml (F3, final), pilot_silent.yaml (tests)
+├── baseline/                Frozen silent baseline (Silent): seed0-2 checkpoints (10,000,384 games) with config, metrics and run info
+├── comm/                    Trained Comm networks, seed0-2 (local only, not tracked)
+├── configs/                 baseline_silent.yaml (Silent), comm.yaml (Comm), pilot_silent.yaml (tests)
 ├── scripts/                 train.py, run_comm_pipeline.sh, distill_speaker.py, evaluate.py, crossplay.py, comm_diagnostics.py, dialect_probe.py, trace_game.py, free_seat_check.py, analyze_messages.py, best_response.py, exploitability.py, plot_training.py, benchmark.py, play_web.py
 ├── tests/                   Rules, information leakage, observation encoding, GAE, message protocol, message statistics, short training runs
 ├── results/                 Curated figures and tables
@@ -309,13 +322,11 @@ pytest                                                     # rules, leakage, pro
 python scripts/benchmark.py --games 2048                   # simulation and update throughput on this machine
 python scripts/train.py --config configs/pilot_silent.yaml # 2,048-game pilot
 python scripts/train.py --config configs/baseline_silent.yaml --seed 0 1 2
-bash scripts/run_comm_pipeline.sh                          # F2 from the frozen baseline: distill, listen, anchored talk
-CONFIG=configs/comm_F3.yaml BASE='runs/comm_F2/stage3b_F/seed{seed}/checkpoint_01000.pt' OUT=runs/comm_F3 \
-    bash scripts/run_comm_pipeline.sh                      # F3 from each seed's F2
-python scripts/evaluate.py --checkpoint runs/comm_F3/stage3b_F/seed0/checkpoint_01000.pt --games 2000 --partners
-python scripts/evaluate.py --checkpoint runs/comm_F3/stage3b_F/seed0/checkpoint_01000.pt --silence all   # every slot silent
-python scripts/crossplay.py runs/comm_F3/stage3b_F/seed{0,1,2}/checkpoint_01000.pt       # 3 x 3 cross-seed matrix
-python scripts/trace_game.py --checkpoint runs/comm_F3/stage3b_F/seed0/checkpoint_01000.pt --games 300 --out trace.md
+bash scripts/run_comm_pipeline.sh                          # Comm from the frozen baseline: distill, listen, anchored talk
+python scripts/evaluate.py --checkpoint runs/comm/talk/seed0/checkpoint_01000.pt --games 2000 --partners
+python scripts/evaluate.py --checkpoint runs/comm/talk/seed0/checkpoint_01000.pt --silence all   # every slot silent
+python scripts/crossplay.py runs/comm/talk/seed{0,1,2}/checkpoint_01000.pt       # 3 x 3 cross-seed matrix
+python scripts/trace_game.py --checkpoint runs/comm/talk/seed0/checkpoint_01000.pt --games 300 --out trace.md
 python scripts/best_response.py --checkpoint baseline/seed0/checkpoint_19532.pt --side evil   # optional diagnostic
 ```
 
@@ -323,7 +334,7 @@ python scripts/best_response.py --checkpoint baseline/seed0/checkpoint_19532.pt 
 - **Changing settings:** override any config key with `--set`, for example `--set ppo.lr=1e-4`.
 - **Several seeds:** `--seed 0 1 2` trains the seeds in parallel processes; each writes its console output to `runs/<name>/seed<k>/train.log`. `--threads` sets the torch CPU threads per run (default with several seeds: an even share of the cores).
 - **Continuing a run:** `--resume` continues from the run's `latest.pt`, for example after a crash or to extend the budget.
-- **Starting from saved weights:** `--init-from` loads network weights only, for warm starts and the branch training of the communication configurations.
+- **Starting from saved weights:** `--init-from` loads network weights only, for warm starts and for branching Comm from the baseline.
 
 **Reference lines.** These come from 3,000 paired games with the default scripted players; trained policies should beat them.
 
@@ -377,8 +388,8 @@ Other options: `--port 8766` if the port is taken; `--lan` to listen on all inte
 ## Compute
 
 The networks are small, so rollouts run on the CPU in worker processes (`workers` in the config; `src/training/workers.py`) and the PPO update runs on the GPU when there is one. Measured on a laptop with a Ryzen 9 8945HX (16 cores) and an RTX 5070 Ti, including evaluation and checkpoints:
-- **Silent baseline:** three S seeds with 8 workers each take about 2 s per iteration, so the 19,532-iteration baseline takes about 11 h.
-- **Communication configurations:** these add up to 32 speaking decisions per game and a message block of several thousand dimensions to every observation. The F3 pipeline for three seeds with 5 workers each takes about 7 h (distillation 8 min, listening 80 min, anchored talk 5.5 h), at 20–28 s per iteration of anchored talk, and writes about 8 GB of checkpoints.
+- **Silent baseline:** three seeds with 8 workers each take about 2 s per iteration, so the 19,532-iteration baseline takes about 11 h.
+- **Comm:** it adds up to 32 speaking decisions per game and a message block of several thousand dimensions to every observation. One pass of the pipeline for three seeds with 5 workers each takes about 7 h (distillation 8 min, listening 80 min, 512,000 games of anchored talk 5.5 h, at 17–28 s per iteration of 512 games) and writes about 8 GB of checkpoints.
 - **GPU stability:** with NVIDIA driver 581.42 that GPU faulted when several runs updated on it at once. With driver 621.01 six parallel runs had no faults. A run that crashes continues from its latest checkpoint with `--resume`.
 
 ## Key References
