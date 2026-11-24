@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Staged communication training (configuration F: all five message slots), all seeds in parallel at every stage:
+# Staged communication training (configs/comm.yaml), all seeds in parallel at every stage:
 #   1. distill    the rule teacher's messages into the message heads of each seed's frozen silent baseline
-#   2. stage2_F   listeners learn (LoRA) while every learned player speaks with the frozen distilled speaker
-#   3. stage3b_F  anchored talk: speakers learn too, without a message entropy bonus. Two anchors keep the
+#   2. listen     listeners learn (LoRA) while every learned player speaks with the frozen distilled speaker
+#   3. talk       anchored talk: speakers learn too, without a message entropy bonus. Two anchors keep the
 #                 talk's meaning the teacher's: a KL term to the distilled speaker that falls to KL_FLOOR and
 #                 stays there, and the rule teacher itself speaking for TEACHER_SHARE of the seats.
 #   4. silent_lora  the silent control (CONTROL=1): the same adaptation and budget without a message channel
@@ -13,16 +13,15 @@
 # Running the script again continues where it stopped: a finished distillation is kept, and every training
 # stage resumes from its latest.pt.
 #
-#   bash scripts/run_comm_pipeline.sh                      # runs/comm_F, seeds 0 1 2
-#   CONFIG=configs/comm_F3.yaml BASE='runs/comm_F2/stage3b_F/seed{seed}/checkpoint_01000.pt' OUT=runs/comm_F3 \
-#       bash scripts/run_comm_pipeline.sh                  # F3 (reply, promise) from each seed's F2
+#   bash scripts/run_comm_pipeline.sh                      # runs/comm, seeds 0 1 2
+#   TALK_ITERS=2000 bash scripts/run_comm_pipeline.sh      # later: 1000 more iterations of anchored talk
 #   SEEDS="0" OUT=/tmp/smoke LISTEN_ITERS=2 TALK_ITERS=2 DISTILL_GAMES=200 bash scripts/run_comm_pipeline.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PY=${PY:-python}
-OUT=${OUT:-runs/comm_F}
-CONFIG=${CONFIG:-configs/comm_F.yaml}
+OUT=${OUT:-runs/comm}
+CONFIG=${CONFIG:-configs/comm.yaml}
 BASE=${BASE:-"baseline/seed{seed}/checkpoint_19532.pt"}  # where the distillation starts ("{seed}" is filled in)
 SEEDS=${SEEDS:-"0 1 2"}
 WORKERS=${WORKERS:-5}
@@ -35,8 +34,8 @@ PARTNER=${PARTNER:-0.25}
 LORA_RANK=${LORA_RANK:-8}
 CONTROL=${CONTROL:-0}
 GAMES_PER_ITER=512
-DISTILLED="$OUT/distill_F/seed{seed}/checkpoint_00000.pt"
-LISTENED="$OUT/stage2_F/seed{seed}/checkpoint_$(printf %05d "$LISTEN_ITERS").pt"
+DISTILLED="$OUT/distill/seed{seed}/checkpoint_00000.pt"
+LISTENED="$OUT/listen/seed{seed}/checkpoint_$(printf %05d "$LISTEN_ITERS").pt"
 
 stage() { echo; echo "=== $(date '+%F %T') $*"; }
 # shellcheck disable=SC2086  # SEEDS is a list
@@ -47,20 +46,20 @@ MIX=(--set "opponents.p_partner=$PARTNER" --set "opponents.p_self=$OTHER" --set 
 stage "1/4 distill ($DISTILL_GAMES games per seed)"
 pids=()
 for s in $SEEDS; do
-    [ -f "$OUT/distill_F/seed$s/checkpoint_00000.pt" ] && continue
-    mkdir -p "$OUT/distill_F/seed$s"
+    [ -f "$OUT/distill/seed$s/checkpoint_00000.pt" ] && continue
+    mkdir -p "$OUT/distill/seed$s"
     "$PY" scripts/distill_speaker.py --baseline "${BASE//\{seed\}/$s}" --config "$CONFIG" \
-        --seed "$s" --games "$DISTILL_GAMES" --out "$OUT/distill_F/seed$s" > "$OUT/distill_F/seed$s/distill.log" 2>&1 &
+        --seed "$s" --games "$DISTILL_GAMES" --out "$OUT/distill/seed$s" > "$OUT/distill/seed$s/distill.log" 2>&1 &
     pids+=($!)
 done
 for pid in ${pids[@]+"${pids[@]}"}; do wait "$pid"; done
 
 stage "2/4 listener stage ($LISTEN_ITERS iterations)"
-train --config "$CONFIG" --name stage2_F --total-games $((LISTEN_ITERS * GAMES_PER_ITER)) \
+train --config "$CONFIG" --name listen --total-games $((LISTEN_ITERS * GAMES_PER_ITER)) \
     --init-from "$DISTILLED" --set "adapt.speaker_from=$DISTILLED" "${MIX[@]}"
 
 stage "3/4 anchored talk ($TALK_ITERS iterations, KL floor $KL_FLOOR, teacher share $TEACHER_SHARE)"
-train --config "$CONFIG" --name stage3b_F --total-games $((TALK_ITERS * GAMES_PER_ITER)) \
+train --config "$CONFIG" --name talk --total-games $((TALK_ITERS * GAMES_PER_ITER)) \
     --init-from "$LISTENED" --set ppo.msg_ent_coef=0.0 --set adapt.msg_kl_coef=0.1 --set adapt.msg_kl_anneal=330 \
     --set "adapt.msg_kl_floor=$KL_FLOOR" --set "adapt.teacher_share=$TEACHER_SHARE" \
     --set "adapt.anchor_from=$DISTILLED" "${MIX[@]}"

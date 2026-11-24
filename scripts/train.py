@@ -1,8 +1,7 @@
 """Train a configuration with self-play PPO.
 
     python scripts/train.py --config configs/baseline_silent.yaml --seed 0
-    python scripts/train.py --config configs/comm_F.yaml --seed 0 1 2 --device cuda
-    python scripts/train.py --config configs/comm_F3.yaml --seed 0 1 2 --resume
+    python scripts/train.py --config configs/comm.yaml --seed 0 1 2 --device cuda --resume
     python scripts/train.py --config configs/pilot_silent.yaml --device cpu
     python scripts/train.py --config configs/baseline_silent.yaml --set ppo.lr=1e-4 --set ppo.ent_coef=0.02
 

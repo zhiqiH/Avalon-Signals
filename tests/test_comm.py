@@ -18,11 +18,11 @@ from src.training.trainer import train
 from helpers import ROLES, make_game, quest, vote
 
 PILOT = Path(__file__).resolve().parents[1] / "configs" / "pilot_silent.yaml"
-F = P.CommConfig(enabled=True)
+FIVE = P.CommConfig(enabled=True)
 M = P.CommConfig(enabled=True, claim=False, team=False, intent=False)
 T = P.CommConfig(enabled=True, team=False)  # no teams named: scripts in which the leaders propose freely
-FX = P.CommConfig(enabled=True, reply=True, promise=True)  # F3: F with replies and promises
-OPT = P.CommConfig(enabled=True, reply=True, promise=True, team_optional=True)  # F3 as trained
+SEVEN = P.CommConfig(enabled=True, reply=True, promise=True)  # with replies and promises
+OPT = P.CommConfig(enabled=True, reply=True, promise=True, team_optional=True)  # and team suggestions as a choice (configs/comm.yaml)
 
 
 def head_index(name: str) -> int:
@@ -73,7 +73,7 @@ def play_quest(game, seats, approvers=range(6), failers=()) -> None:
 
 
 def test_each_quest_opens_with_one_discussion_leader_last():
-    game = make_game(leader=2, comm=F)
+    game = make_game(leader=2, comm=FIVE)
     assert game.phase == Phase.DISCUSS
     order = []
     while game.in_discussion:
@@ -99,7 +99,7 @@ def test_closed_slots_can_only_say_nothing():
 
 
 def test_a_judgment_needs_a_record_and_the_first_round_is_for_claims_suggestions_and_intents():
-    game = make_game(leader=0, comm=F)  # seat 1 speaks first; nothing is on record yet
+    game = make_game(leader=0, comm=FIVE)  # seat 1 speaks first; nothing is on record yet
     assert mask_of(game, P.H_CLAIM).tolist() == [True, True, True, False]  # nobody claims Merlin
     for claim in (P.C_NONE, P.C_SERVANT, P.C_PERCIVAL):
         assert np.flatnonzero(mask_of(game, P.H_JUDGE, claim=claim)).tolist() == [P.J_NONE]
@@ -210,7 +210,7 @@ def named_teams(game, **heads) -> list[list[int]]:
 
 
 def test_suggested_and_proposed_teams_are_among_the_cleanest_by_the_record():
-    game = make_game(leader=0, comm=F)
+    game = make_game(leader=0, comm=FIVE)
     assert named_teams(game) == [[0, 1], [1, 2], [1, 3], [1, 4], [1, 5]]  # seat 1, nothing on record: any team with itself
     while game.acting_players() != [0]:
         say(game)
@@ -246,7 +246,7 @@ def test_suggested_and_proposed_teams_are_among_the_cleanest_by_the_record():
 
 
 def test_intents_cannot_contradict_judgments_or_ones_own_suggestion():
-    game = make_game(leader=0, comm=F)
+    game = make_game(leader=0, comm=FIVE)
     team = 1 + A.TEAM_INDEX[2][(0, 1)]  # seat 1 suggests itself and seat 2
     assert not mask_of(game, P.H_INTENT, judge1=P.J_GOOD)[P.I_VETO]
     assert not mask_of(game, P.H_INTENT, judge1=P.J_EVIL)[P.I_REQUIRE]
@@ -328,7 +328,7 @@ def test_words_bind_the_speakers_own_actions():
 
 
 def test_without_the_binding_deeds_against_ones_words_are_counted_in_public():
-    game = make_game(leader=0, comm=F, binding=False)
+    game = make_game(leader=0, comm=FIVE, binding=False)
     play_quest(game, [0, 1], approvers=[0, 1, 2, 4, 5])  # seat 3 rejects a success: the record against it
     speak_as(game, 2, judge1=P.J_EVIL, team=1 + A.TEAM_INDEX[3][(0, 4, 5)])  # seat 2 accuses seat 3; names 2, 0, 1
     speak_as(game, 4, team=1 + A.TEAM_INDEX[3][(0, 1, 2)])  # seat 4 names seats 4, 5, 0
@@ -357,7 +357,7 @@ def test_without_the_binding_deeds_against_ones_words_are_counted_in_public():
 
 
 def test_a_free_seat_is_not_bound_and_its_deeds_against_its_words_are_counted():
-    game = make_game(leader=0, comm=F)
+    game = make_game(leader=0, comm=FIVE)
     game.free_seats = frozenset({2})  # a human in seat 2
     say(game)
     loose = P.free_message(game, 2, judgments=[P.J_EVIL])  # accuses seat 3 with no record, names no team
@@ -463,7 +463,7 @@ def test_a_change_of_mind_must_cite_the_new_record():
 
 
 def test_messages_are_encoded_in_the_observers_frame():
-    game = make_game(leader=0, comm=F)
+    game = make_game(leader=0, comm=FIVE)
     play_quest(game, [0, 1], approvers=[0, 1, 2, 3, 5])  # seat 4 rejects a success: the record against it
     team = 1 + A.TEAM_INDEX[3][(0, 4, 5)]  # seats 2, 0, 1: the cleanest team by the record
     say(game, claim=P.C_SERVANT, judge2=P.J_EVIL, team=team, intent2=P.I_VETO)  # seat 2 speaks first, about seat 4
@@ -485,7 +485,7 @@ def test_messages_are_encoded_in_the_observers_frame():
 def test_messages_do_not_reveal_hidden_roles():
     roles_a = [Role.SERVANT, Role.MERLIN, Role.PERCIVAL, Role.SERVANT, Role.MORGANA, Role.ASSASSIN]
     roles_b = [Role.SERVANT, Role.ASSASSIN, Role.MERLIN, Role.MORGANA, Role.PERCIVAL, Role.SERVANT]
-    games = [make_game(roles_a, comm=F), make_game(roles_b, comm=F)]
+    games = [make_game(roles_a, comm=FIVE), make_game(roles_b, comm=FIVE)]
     for g in games:
         say(g, claim=P.C_SERVANT, intent2=P.I_VETO)
         say(g, claim=P.C_PERCIVAL, intent1=P.I_REQUIRE, intent2=P.I_VETO)
@@ -528,7 +528,7 @@ def test_silenced_slots_look_like_saying_nothing():
     assert P.forced_message(P.message_context(mute, 1)) is not None  # nothing to choose: nobody is asked
     # A team is always named where the slot is open, so only the other slots can look like a choice of silence.
     silenced = make_game(comm=P.CommConfig(enabled=True, silence=[s for s in P.SLOTS if s != "team"]))
-    reference = make_game(comm=F)
+    reference = make_game(comm=FIVE)
     for game in (silenced, reference):
         for _ in range(3):
             assert P.forced_message(P.message_context(game, game.acting_players()[0])) is None
@@ -537,7 +537,7 @@ def test_silenced_slots_look_like_saying_nothing():
     assert np.array_equal(P.encode_comm(silenced, 4), P.encode_comm(reference, 4))
 
 
-@pytest.mark.parametrize("cfg", [F, M, FX, OPT])
+@pytest.mark.parametrize("cfg", [FIVE, M, SEVEN, OPT])
 def test_scripted_players_finish_communication_games(cfg):
     rng = np.random.default_rng(0)
     rule, rand = RuleController(), RandomController()
@@ -557,7 +557,7 @@ def test_policy_messages_are_legal_and_logps_are_reproducible():
         net.actor[-1].weight.mul_(100)  # make message heads far from uniform
         net.actor_cond.weight.normal_()  # exercise the conditioning of stage-B heads
     learner = PolicyController(net, learn=True)
-    games = [AvalonGame(rng, comm=F) for _ in range(16)]
+    games = [AvalonGame(rng, comm=FIVE) for _ in range(16)]
     recorder = TrajectoryRecorder()
     play(games, [learner] * 16, [RandomController()] * 16, rng, on_decision=recorder)
     batch = recorder.build(games, gamma=1.0, lam=0.95)["good"]
@@ -586,7 +586,7 @@ def test_branch_from_silent_weights_plays_like_the_silent_network():
     silent, comm = ActorCritic(), ActorCritic(comm=True)
     load_silent_weights(comm, silent.state_dict())
     rng = np.random.default_rng(1)
-    games = [AvalonGame(rng, comm=F) for _ in range(8)]
+    games = [AvalonGame(rng, comm=FIVE) for _ in range(8)]
     for _ in range(40):  # advance through several discussions with random messages
         play_one_tick(games, rng)
         if sum(not g.done for g in games) <= 2:
@@ -620,14 +620,14 @@ def test_short_communication_run_branches_from_a_silent_checkpoint(tmp_path):
     assert lines[-1]["iteration"] == 3
 
 
-# ---------------------------------------------------------------------- replies and promises (F3)
+# ---------------------------------------------------------------------- replies and promises
 def team_value(speaker: int, seats) -> int:
     """Team-head value, in `speaker`'s frame, of the absolute seats."""
     return 1 + A.TEAM_INDEX[len(seats)][tuple(sorted((s - speaker) % 6 for s in seats))]
 
 
 def test_replies_answer_earlier_speakers_and_bind_votes():
-    game = make_game(leader=0, comm=FX)
+    game = make_game(leader=0, comm=SEVEN)
     play_quest(game, [0, 4], approvers=[0, 1, 4, 5], failers=[4])  # records against 0, 4 (quest) and 1, 5 (vote)
     # Round 2 (three seats), leader 1: seats 2, 3, 4, 5, 0 speak, then the leader.
     assert not mask_of(game, P.H_REPLY + 4).any()  # the first speaker has nobody to answer
@@ -652,7 +652,7 @@ def test_replies_answer_earlier_speakers_and_bind_votes():
 
 
 def test_a_leader_adopts_only_a_clean_team_with_itself():
-    game = make_game(leader=0, comm=FX)
+    game = make_game(leader=0, comm=SEVEN)
     speak_as(game, 1, team=team_value(1, [1, 0]))  # round 1: no record, every team is equally clean
     speak_as(game, 2, team=team_value(2, [2, 3]))
     assert mask_of(game, P.H_REPLY + 4).tolist() == [True, True, False]  # nobody has a basis to dispute yet
@@ -665,7 +665,7 @@ def test_a_leader_adopts_only_a_clean_team_with_itself():
 
 
 def test_a_dispute_cites_the_first_basis_that_holds():
-    game = make_game(leader=0, comm=FX)
+    game = make_game(leader=0, comm=SEVEN)
     play_quest(game, [0, 4], approvers=[0, 2, 4, 5], failers=[4])  # against 0, 4 (quest), 2, 5 (vote)
     play_quest(game, [1, 3, 5], approvers=[1, 3, 5, 0])  # for 1, 3, 5 (quest)
     # Round 3, leader 2: seats 3, 4, 5, 0, 1, then 2.
@@ -677,7 +677,7 @@ def test_a_dispute_cites_the_first_basis_that_holds():
 
 
 def test_promises_force_the_next_rounds_judgment():
-    game = make_game(leader=0, comm=FX)
+    game = make_game(leader=0, comm=SEVEN)
     game.free_seats = frozenset({3})
     # Round 1, leader 0: seats 1-5, then 0.
     speak_as(game, 2, promise2=P.K_FAIL_EVIL, promise5=P.K_SUCCESS_GOOD)  # about seats 4 and 1
@@ -701,7 +701,7 @@ def test_promises_force_the_next_rounds_judgment():
 
 
 def test_promises_close_where_no_discussion_follows():
-    game = make_game(leader=0, comm=FX, binding=False)  # leaders propose freely
+    game = make_game(leader=0, comm=SEVEN, binding=False)  # leaders propose freely
     play_quest(game, [0, 4], failers=[4])
     play_quest(game, [1, 2, 5], failers=[5])  # two fails: a third ends the game
     ok = P.message_context(game, game.acting_players()[0])["promise_ok"]
@@ -739,7 +739,7 @@ def test_communication_networks_before_replies_and_promises_load_unchanged():
 
 
 def test_a_team_suggestion_is_a_choice_only_where_the_configuration_says_so():
-    forced, free = make_game(leader=0, comm=F), make_game(leader=0, comm=OPT)
+    forced, free = make_game(leader=0, comm=FIVE), make_game(leader=0, comm=OPT)
     assert not mask_of(forced, P.H_TEAM)[0] and mask_of(forced, P.H_TEAM)[1:].any()
     assert mask_of(free, P.H_TEAM)[0] and (mask_of(free, P.H_TEAM)[1:] == mask_of(forced, P.H_TEAM)[1:]).all()
     say(free, team=0)  # seat 1 names no team: nothing for the others to answer

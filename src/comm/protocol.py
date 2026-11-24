@@ -1,4 +1,4 @@
-"""Structured message protocol: five slots, and two more (reply, promise) in the extended configurations.
+"""Structured message protocol: five slots, and two more (reply, promise) where they are switched on.
 
 Timing. Every quest opens with one round of public discussion before its first proposal: starting with
 the player to the leader's left and going round the table, each player speaks once and the leader speaks
@@ -87,8 +87,8 @@ Consistency rules (enforced by masks, sampled in the order above):
 - no judgment without a basis: a player can be judged one way (good or evil) only if some record points that
   way. Before the first quest is resolved there is no record, so nobody can judge anybody: the first round is
   for claims, team suggestions and intents. The evil talk is exempt;
-- Merlin cannot call evil a player he knows to be good (he may keep silent about anyone). This is the rule of F
-  and F2. With `merlin_may_accuse_good` (F3) it is gone: Merlin judges and promises under the rules of every
+- Merlin cannot call evil a player he knows to be good (he may keep silent about anyone). With
+  `merlin_may_accuse_good` (configs/comm.yaml) this rule is gone: Merlin judges and promises under the rules of every
   good player, so that what he says about a good player cannot rule him out as Merlin; how far he covers
   himself is left to learning;
 - the rationale is the reasoning behind a judgment: it exists only for a judged player and points the same
@@ -102,7 +102,7 @@ Consistency rules (enforced by masks, sampled in the order above):
       proposal record  the player led quest q's team, which failed (evil) / succeeded (good);
       role knowledge   the claimed role's sight (unused while the Merlin claim and role names are closed);
 - everybody but the leader suggests a team (the leader's proposal follows its message); with `team_optional`
-  (F3) a suggestion is a choice, and a player may also name no team. The team holds the
+  (configs/comm.yaml) a suggestion is a choice, and a player may also name no team. The team holds the
   speaker, nobody the speaker accuses, and is not a team the good players' vote guard would make the speaker
   reject. Among the teams this leaves, it must be one of the cleanest by the public record as a good player in
   the speaker's seat reads it (`good_view`: the public suspicion score, and what the quest results make certain
@@ -145,15 +145,20 @@ class CommConfig:
     rationale: bool = True
     team: bool = True
     intent: bool = True  # (5) action intent
-    reply: bool = False  # (6) replies to the earlier speakers of the round (extended configurations)
+    reply: bool = False  # (6) replies to the earlier speakers of the round
     promise: bool = False  # (7) conditional promises about the next round's judgments
-    # Whether a player may leave the team suggestion out. False (F, F2): everybody but the leader suggests a team
+    # Whether a player may leave the team suggestion out. False: everybody but the leader suggests a team
     # whenever one is open to it. True: a suggestion is a choice in every round, like every other slot.
     team_optional: bool = False
-    # Whether Merlin may call evil (and promise to call evil) a player he knows to be good. False (F, F2): he
+    # Whether Merlin may call evil (and promise to call evil) a player he knows to be good. False: he
     # cannot, which lets the evil team rule out as Merlin whoever accuses a good player. True: no such rule.
     merlin_may_accuse_good: bool = False
-    silence: list[str] = field(default_factory=list)  # test time: slots forced to say nothing (F -> F-k, F -> S)
+    # How the rule teacher (agents/teacher.py) speaks for Merlin and Percival. False:
+    # with their role habits (Percival leans towards his two candidates; Merlin, where he uses his knowledge, never
+    # says what he knows to be false). True: by the public record alone, as for a Servant. The habits show the evil
+    # team who Merlin is, and a seat the teacher speaks for cannot learn to hide them.
+    teacher_hides_roles: bool = False
+    silence: list[str] = field(default_factory=list)  # test time: slots forced to say nothing
 
     def __post_init__(self) -> None:
         unknown = set(self.silence) - set(SLOTS)
@@ -201,7 +206,7 @@ H_RTYPE = H_JUDGE + N_OTHERS
 H_RROUND = H_RTYPE + N_OTHERS
 H_TEAM = H_RROUND + N_OTHERS
 H_INTENT = H_TEAM + 1
-H_REPLY = H_INTENT + N_OTHERS  # heads from here on were added after F2 (checkpoints before them: `LEGACY`)
+H_REPLY = H_INTENT + N_OTHERS  # heads from here on were added later (checkpoints before them: `LEGACY`)
 H_RBASIS = H_REPLY + N_OTHERS
 H_PROMISE = H_RBASIS + N_OTHERS
 N_MSG_HEADS = H_PROMISE + N_OTHERS
@@ -924,7 +929,7 @@ COMM_GLOBAL_DIM = _o
 COMM_LAYOUT["messages"] = slice(COMM_GLOBAL_DIM, COMM_GLOBAL_DIM + N_MSG_SLOTS * MSG_FEAT_DIM)
 COMM_DIM = COMM_LAYOUT["messages"].stop
 
-# Sizes of the networks trained before the reply and promise slots (F, F2): their message features, global
+# Sizes of the networks trained before the reply and promise slots: their message features, global
 # communication features and message logits are prefixes of today's (`policy.upgrade_legacy_state`).
 LEGACY = {
     "msg_feat_dim": MSG_LAYOUT["intent"].stop,

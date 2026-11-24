@@ -1,0 +1,27 @@
+{
+ "checkpoint": "runs/comm_F3c/stage3b_F/seed1/checkpoint_01000.pt",
+ "games": 5000,
+ "teacher_share": 0.0,
+ "assassin_hit_by_merlins_speaker": {
+  "Merlin speaks himself; teacher speaks for 0 of the 2 evil players": {
+   "rate": 0.3491,
+   "k": 1003,
+   "n": 2873
+  },
+  "Merlin speaks himself; teacher speaks for 0 of the 3 other good players": {
+   "rate": 0.3491,
+   "k": 1003,
+   "n": 2873
+  },
+  "all": {
+   "rate": 0.3491,
+   "k": 1003,
+   "n": 2873
+  },
+  "own network": {
+   "rate": 0.3491,
+   "k": 1003,
+   "n": 2873
+  }
+ }
+}

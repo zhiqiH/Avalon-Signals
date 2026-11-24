@@ -1,17 +1,17 @@
 """Distil the rule teacher's messages into the message heads of a branched network (communication stage 1).
 
-    python scripts/distill_speaker.py --baseline baseline/seed0/checkpoint_19532.pt --config configs/comm_F.yaml \
-        --seed 0 --out runs/comm_F/distill_F/seed0
+    python scripts/distill_speaker.py --baseline baseline/seed0/checkpoint_19532.pt --config configs/comm.yaml \
+        --seed 0 --out runs/comm/distill/seed0
 
 1. Branch both teams' networks from the frozen silent checkpoint exactly as training does (message inputs and
-   heads at zero weight, so the network plays exactly like S). The starting checkpoint can also be a
-   communication network (F2 for the extended configuration): it keeps its weights, and the parts for the
-   reply and promise slots start at zero (`policy.upgrade_legacy_state`).
+   heads at zero weight, so the network plays exactly like the baseline). The starting checkpoint can also be a
+   communication network trained before the reply and promise slots: it keeps its weights, and the parts for
+   those slots start at zero (`policy.upgrade_legacy_state`).
 2. Play self-play games: actions come from these networks, every message from the rule teacher
    (src/agents/teacher.py). Record each speaking decision.
 3. Fit only the message heads: the rows of the actor's output layer that belong to message heads, and the
    stage-B conditioning map. The trunk and the game-action rows stay fixed, so the network still plays exactly
-   like S, and listeners still ignore messages (their input weights stay zero). Loss: cross-entropy of the
+   like the baseline, and listeners still ignore messages (their input weights stay zero). Loss: cross-entropy of the
    teacher's value at every head the message used, under the same consistency masks as sampling.
 4. Save a checkpoint that training can start from (`init_from`), plus distill.json with held-out fit statistics.
 """

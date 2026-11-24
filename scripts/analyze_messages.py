@@ -1,7 +1,7 @@
 """Message statistics from saved self-play game records, per file and pooled.
 
-    python scripts/evaluate.py --checkpoint runs/comm_F3/stage3b_F/seed0/latest.pt --save-games games_seed0.jsonl
-    python scripts/analyze_messages.py games_seed*.jsonl --out results/tables/comm_F3/messages.json
+    python scripts/evaluate.py --checkpoint runs/comm/talk/seed0/latest.pt --save-games games_seed0.jsonl
+    python scripts/analyze_messages.py games_seed*.jsonl --out results/tables/comm/messages.json
 
 Reports slot use by team and role, the precision of accusations and endorsements against guessing, the
 share and precision of each rationale basis, whether leaders include accused players and voters approve

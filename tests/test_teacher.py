@@ -163,7 +163,7 @@ def test_distilled_network_plays_exactly_like_the_silent_one(tmp_path):
     out = tmp_path / "distill"
     root = Path(__file__).resolve().parents[1]
     subprocess.run([sys.executable, str(root / "scripts/distill_speaker.py"), "--baseline", str(base),
-                    "--config", str(root / "configs/comm_F.yaml"), "--games", "12", "--epochs", "2", "--out", str(out)],
+                    "--config", str(root / "configs/comm.yaml"), "--games", "12", "--epochs", "2", "--out", str(out)],
                    check=True, cwd=root, capture_output=True)
     ck = load_checkpoint(out / "checkpoint_00000.pt")
     assert ck["config"]["comm"]["enabled"]
@@ -189,11 +189,11 @@ def test_rule_players_suspect_whoever_acted_against_its_words():
     assert public_suspicion(game).tolist() == [0, 0, 2 * BROKEN_WORD, 2 * FAILED_VOUCH, 0, 0]
 
 
-F3 = P.CommConfig(enabled=True, reply=True, promise=True)
+SEVEN = P.CommConfig(enabled=True, reply=True, promise=True)
 
 
 def test_teacher_replies_and_promises_follow_what_the_speaker_knows():
-    games, log = play_with_teacher(F3, n=120, knowledge=1.0)
+    games, log = play_with_teacher(SEVEN, n=120, knowledge=1.0)
     assert all(g.done for g in games)
     assert not any(g.audit[:, [P.A_JUDGE, P.A_INTENT, P.A_TEAM, P.A_REPLY, P.A_PROMISE]].any() for g in games)
     counts = {"endorse": 0, "dispute": 0, "promise": 0}
@@ -226,6 +226,33 @@ def test_teacher_merlin_promises_like_a_good_player_where_he_may_accuse_good_pla
             about_good += int((~evil & (promises == P.K_FAIL_EVIL)).sum())
             about_evil += int((evil & (promises == P.K_SUCCESS_GOOD)).sum())
     assert about_good > 0 and about_evil > 0  # the promises only a player without his sight would make
+
+
+def test_a_teacher_that_hides_roles_speaks_for_merlin_and_percival_as_for_a_servant():
+    hide = P.CommConfig(enabled=True, reply=True, promise=True, team_optional=True, merlin_may_accuse_good=True,
+                        teacher_hides_roles=True)
+    games, log = play_with_teacher(hide, n=200, knowledge=1.0)
+    assert all(g.done for g in games)
+    assert not any(g.audit[:, [P.A_JUDGE, P.A_INTENT, P.A_TEAM, P.A_REPLY, P.A_PROMISE]].any() for g in games)
+    teacher = TeacherSpeaker(merlin_knowledge_prob=1.0)
+    false_words = {Role.MERLIN: 0, Role.SERVANT: 0}
+    for phase, role, speaker, known_evil, msg, game, *_ in log:
+        if phase != Phase.DISCUSS or role not in (Role.MERLIN, Role.PERCIVAL, Role.SERVANT):
+            continue
+        if role in false_words:  # judged against the truth: evil called good, good called evil
+            evil = np.array([game.is_evil_seat(int(s)) for s in P._others(speaker)])
+            judged = msg[P.H_JUDGE:P.H_JUDGE + P.N_OTHERS]
+            false_words[role] += int(((judged == P.J_GOOD) & evil).sum() + ((judged == P.J_EVIL) & ~evil).sum())
+    assert false_words[Role.MERLIN] > 0  # he no longer stands out by never being wrong
+    for game in games[:40]:  # the scores every statement comes from: the good player's view, for all three roles
+        for role in (Role.MERLIN, Role.PERCIVAL):
+            seat = game.seat_of(role)
+            assert not teacher.merlin_knows(game)
+            assert np.array_equal(teacher.scores(game, seat), good_view(game, seat))
+    plain = P.CommConfig(enabled=True, reply=True, promise=True, team_optional=True, merlin_may_accuse_good=True)
+    game = AvalonGame(np.random.default_rng(3), comm=plain)
+    percival = game.seat_of(Role.PERCIVAL)
+    assert not np.array_equal(teacher.scores(game, percival), good_view(game, percival))  # the habit, where it stays
 
 
 def test_where_suggestions_are_a_choice_the_teacher_names_a_team_only_with_a_reason():

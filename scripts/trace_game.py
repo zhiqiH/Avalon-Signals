@@ -1,6 +1,6 @@
 """Play games with one checkpoint and write a full trajectory of one of them, with what lies behind each decision.
 
-    python scripts/trace_game.py --checkpoint runs/comm_F/stage3b_F/seed0/checkpoint_01000.pt --out trace.md
+    python scripts/trace_game.py --checkpoint runs/comm/talk/seed0/checkpoint_01000.pt --out trace.md
 
 Every seat is played by the checkpoint's own networks (self-play). For each decision the trace keeps
 - what the player knows: its role, its private knowledge, and what exact deduction leaves it (the evil pairs

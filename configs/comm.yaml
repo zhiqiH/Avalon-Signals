@@ -1,0 +1,68 @@
+# Communication (Comm): the silent game plus a structured discussion before every proposal (comm/protocol.py).
+# A message has seven slots: role claim, judgments, their rationale (derived), team suggestion, action intent,
+# replies and conditional promises. What a player says binds what it does.
+#   reply    later speakers of a round endorse or dispute earlier ones (a dispute's basis is derived); the
+#            reply binds the vote on the answered player's team, and a leader's endorsement adopts that team;
+#   promise  "if r goes on this round's quest and it fails / succeeds, I will call r evil / good" next round.
+# A team suggestion is a choice (team_optional): nobody has to name a team.
+# Merlin may accuse a player he knows to be good (merlin_may_accuse_good): a rule against it would give him away
+# (whoever promised to accuse a good player would not be Merlin).
+# The rule teacher speaks for Merlin and Percival by the public record alone (teacher_hides_roles): with role
+# habits of its own it would show the evil team who Merlin is.
+# Identical to baseline_silent.yaml except for the `comm` block and the start: each seed starts from its own frozen
+# silent baseline (baseline/seed{seed}/checkpoint_19532.pt, 10,000,384 games). The silent weights are embedded with
+# zero weights on all message inputs and outputs, so the run starts by playing exactly like the baseline. Train it
+# with the staged pipeline (the budgets below are overridden there):
+#   bash scripts/run_comm_pipeline.sh
+# README.md (Training) says how the networks behind the reported results were trained.
+name: comm
+seed: 0
+device: cuda
+total_games: 752640
+games_per_iter: 512
+checkpoint_every: 20
+workers: 4              # rollout worker processes per run; sized for 6 runs at once on 32 CPU threads
+out_dir: runs
+init_from: baseline/seed{seed}/checkpoint_19532.pt
+
+comm:
+  enabled: true
+  claim: true
+  alignment: true
+  rationale: true
+  team: true
+  intent: true
+  reply: true
+  promise: true
+  team_optional: true
+  merlin_may_accuse_good: true
+  teacher_hides_roles: true
+
+model:
+  hidden_sizes: [256, 256]
+  deduction: true       # deduction fields of the observation (README, Observation)
+
+ppo:
+  lr: 3.0e-4
+  epochs: 4
+  minibatch_size: 2048
+  clip_coef: 0.2
+  vf_coef: 0.5
+  ent_coef: 0.01
+  max_grad_norm: 0.5
+  gamma: 1.0            # finite game with a single terminal reward
+  gae_lambda: 0.95
+  norm_adv: true
+
+opponents:
+  p_self: 0.5           # both teams current policies
+  p_pool: 0.25          # one team replaced by a past snapshot
+  p_rule: 0.25          # one team replaced by the rule-based player
+  snapshot_every: 10
+  pool_size: 20
+  rule_fail_prob: 0.9
+  rule_merlin_knowledge_prob: 0.5   # rule Merlin acts on his knowledge only half the time
+
+eval:
+  every: 20
+  games: 512

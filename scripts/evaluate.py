@@ -1,8 +1,8 @@
 """Evaluate a trained checkpoint with frozen policies and paired role assignments.
 
     python scripts/evaluate.py --checkpoint baseline/seed0/checkpoint_19532.pt --games 1000
-    python scripts/evaluate.py --checkpoint runs/comm_F/seed0/latest.pt --silence all        # F -> S
-    python scripts/evaluate.py --checkpoint runs/comm_F/seed0/latest.pt --silence rationale  # F -> F without (3)
+    python scripts/evaluate.py --checkpoint runs/comm/talk/seed0/latest.pt --silence all        # nobody speaks
+    python scripts/evaluate.py --checkpoint runs/comm/talk/seed0/latest.pt --silence rationale  # without slot (3)
 
 Matchups: self-play, policy against rule-based players on each side, and the rule-vs-rule and
 random-vs-random reference lines, all with the checkpoint's communication configuration. --silence

@@ -7,6 +7,11 @@ competent for both teams, so that a head start from the teacher does not favor o
 - Every speaker forms a "good player's view" of the others: public suspicion (`rule_agent.public_suspicion`)
   plus what the deduction fields make certain once the speaker counts itself as good. Percival also leans
   away from his two candidates, as the rule player does.
+- With `CommConfig.teacher_hides_roles` the two role habits of this list are off: Percival has no leaning and
+  Merlin never speaks from his knowledge, so both speak as a Servant in their seat would. A learned Assassin
+  reads the habits (Percival ends up vouching for Merlin, whose record is the better of his two candidates;
+  Merlin never names or endorses a team with an evil player), and the seats the teacher speaks for in training
+  cannot learn to hide them.
 - Merlin acts on his knowledge in a share of games (`merlin_knowledge_prob`, fixed per game, as for the rule
   player). Then he says what the good player's view would say, minus what he knows to be false: he never
   accuses a good player and never vouches for an evil one. So his talk is a part of what any good player
@@ -31,12 +36,12 @@ competent for both teams, so that a head start from the teacher does not favor o
   something: the public record must tell the teams with the speaker apart (their totals differ by more than the
   protocol's `TEAM_MARGIN`; never so before the first quest is resolved), and the speaker has endorsed nobody's
   team in this message (it then stands behind that team instead). Both conditions are the same for every role.
-- Replies (extended configurations), to every earlier speaker of the round: endorse its team where that team
+- Replies (where the slot is on), to every earlier speaker of the round: endorse its team where that team
   costs at most `ENDORSE_MARGIN` more than the best team with the speaker under the speaker's scores and holds
   nobody the speaker would never put on a team (as for suggestions); the leader endorses (adopts) only the
   cheapest such team. Otherwise dispute wherever the protocol finds a basis (an accusation of the speaker, a
   judgment the other way, an accused player on the team), and say nothing where it finds none.
-- Promises (extended configurations): "fail-evil" for players under suspicion but not yet accused (score at
+- Promises (where the slot is on): "fail-evil" for players under suspicion but not yet accused (score at
   least `PROMISE_ACCUSE_AT`, below `accuse_at`), "success-good" for players leaning good but not yet vouched for
   (score above `vouch_at`, at most `PROMISE_VOUCH_AT`): what the teacher would then say anyway. An evil player
   never promises to accuse its teammate. Percival promises by the record alone, without the leaning his sight
@@ -114,8 +119,9 @@ class TeacherSpeaker:
         return flips
 
     def merlin_knows(self, game: AvalonGame) -> bool:
-        """Whether Merlin acts on his knowledge in this game."""
-        return self._draws(game)["merlin_knows"]
+        """Whether Merlin speaks from his knowledge in this game."""
+        knows = self._draws(game)["merlin_knows"]  # drawn in every configuration: the same random stream
+        return knows and not game.comm.teacher_hides_roles
 
     def claim(self, game: AvalonGame, player: int) -> int:
         role = int(game.roles[player])
@@ -133,7 +139,7 @@ class TeacherSpeaker:
             s[known_evil] = np.maximum(s[known_evil], self.vouch_at + 1e-3)  # never vouch for an evil player
             s[~known_evil] = np.minimum(s[~known_evil], self.accuse_at - 1e-3)  # never accuse a good one
             return s
-        if role == Role.PERCIVAL:
+        if role == Role.PERCIVAL and not game.comm.teacher_hides_roles:
             s = s - 0.5 * candidates
         if game.is_evil_seat(player):
             mate = known_evil.copy()
@@ -231,7 +237,7 @@ class TeacherSpeaker:
         """Desired promise per relative seat (see the module docstring)."""
         others = P._others(player)
         score = s[others]
-        if game.roles[player] == Role.PERCIVAL:  # by the record alone: his sight leaning would promise for both
+        if game.roles[player] == Role.PERCIVAL and not game.comm.teacher_hides_roles:  # by the record alone: his leaning would promise for both
             score = score + 0.5 * game.private_knowledge(player)[1][others]  # candidates, and so point at Merlin
         out = np.full(P.N_OTHERS, P.K_NONE, dtype=np.int64)
         out[(score >= PROMISE_ACCUSE_AT) & (score < self.accuse_at)] = P.K_FAIL_EVIL
