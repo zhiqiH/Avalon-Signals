@@ -2,22 +2,25 @@
 
 Graduate term project for **CS 7329 Reinforcement Learning** at Southern Methodist University (Fall 2026).
 
-What do agents gain from talking in a hidden-role game? This project trains multi-agent reinforcement learning agents to play six-player *The Resistance: Avalon*. They first play **in silence**, using only public actions such as team proposals, votes and mission results. Then they play with a **structured five-slot message channel**. Comparing the two shows what explicit communication adds to win rates, to strategic behavior, and to the information carried by public actions.
+What do agents gain from talking in a hidden-role game? This project trains multi-agent reinforcement learning agents to play six-player *The Resistance: Avalon*. They first play **in silence**, using only public actions such as team proposals, votes and mission results. Then they play with a **structured message channel** in which a statement needs a basis on the public record and binds what its speaker may do next. The talk is built so that a person at the table can read it and hold the speaker to it. The project measures what such talk changes: who wins, and what it gives away.
 
-This README is the experiment plan and design. It will be replaced by a results write-up once all experiments are finished.
+This README is the design of the project and its state on 2026-11-24 (Section 8). It will be replaced by a results write-up once all experiments are finished.
 
 ## 1 Research Questions
 
 | | Question | Main evidence |
 |---|---|---|
-| **RQ1** Game balance | Relative to the silent baseline, which team gains more when communication is added? | Good win rate; probability of three successful missions; assassination accuracy given three successes |
-| **RQ2** Strategic behavior | How do team building, voting, sabotage and identity concealment change? | Behavior metrics by role and game state |
-| **RQ3** Implicit signaling | In silent play, do public actions carry information? Once explicit messages exist, is that implicit signal complemented or crowded out? | Information gain, receiver interventions, cross-seed checks |
-| **RQ4** Message components | Which of the five message types account for the effect of communication? | Slot-by-slot training ablations, test-time slot removal, message truthfulness and listener influence |
+| **RQ1** Game balance | Relative to the silent baseline, which team gains when the players can talk? | Good win rate within and across training seeds; probability of three successful missions; assassination accuracy given three successes |
+| **RQ2** Implicit signaling | In silent play, do public actions carry hidden information that other players use? | Cross-seed play and a partner who votes and proposes "with a foreign accent"; the question is whether such a channel exists, not how to decode it |
+| **RQ3** Concealment | What does talk give away about Merlin, and how do the agents learn to hide it? | Assassination accuracy by who speaks for each seat; which kinds of statement let an observer pick Merlin; how often Merlin says what he knows to be false |
 
-**Why reinforcement learning.** Each player sees only part of the state and must infer identities from the game history while making sequential decisions. Reward arrives only at the end of a game, and good ways to propose, vote and speak are not known in advance. Self-play policy gradient methods can learn such policies, and different communication settings can then be compared under controlled conditions.
+An earlier plan asked which message slot accounts for the effect of communication, with one training configuration per slot. It was dropped: the slots do not work apart from each other once words bind deeds, and the project's aim moved from splitting "communication" into parts to getting one talking agent whose speech makes sense at a table.
 
-**Why silence is the baseline.** Silent play has fewer decisions and no cheap-talk problem of messages being ignored, so it trains into a stable baseline that every communication configuration can start from. The question is therefore what communication *adds*, without assuming a direction. Talk may help good players coordinate, but it may also help evil players deceive or find Merlin. Different message types may even pull in opposite directions: a role claim can help Percival, and it can also expose Merlin to the Assassin.
+**Why reinforcement learning.** Each player sees only part of the state and must infer identities from the game history while making sequential decisions. Reward arrives only at the end of a game, and good ways to propose, vote and speak are not known in advance. Self-play policy gradient methods can learn such policies, and silent and talking play can then be compared under controlled conditions.
+
+**Why silence is the baseline.** Silent play has fewer decisions and no cheap-talk problem of messages being ignored, so it trains into a stable baseline that the talking agents start from. The question is therefore what communication *adds*, without assuming a direction. Talk may help good players coordinate, but it may also help evil players deceive or find Merlin.
+
+**Readable talk is a requirement of the design, not a research question.** That statements rest on the public record and that speakers act on them is enforced by the protocol and checked before any result is read (Section 7, acceptance checks); so is play next to partners with plain human logic. Win rate is an observation, not the goal: a higher win rate reached through talk that only an agent's own training partners understand would count against it.
 
 ## 2 Related Work
 
@@ -26,7 +29,7 @@ This README is the experiment plan and design. It will be replaced by a results 
 | DeepRole [1] | Five-player Avalon; CFR with deductive reasoning and a value network; no language | Precedent for strong silent play, which supports silence as the baseline |
 | Is it Percival time yet? [2] | Descriptive statistics of 61 human games | Source of metrics: Percival claims, the first failed mission, evil coordination failures; not causal |
 | Strategist [3] | LLM with tree search | Its appendix has six-player human games with and without discussion, but without Percival and Morgana and without controlled training |
-| Lan et al. [4] | LLM agents in six-player Avalon with Percival and Morgana | Behavior categories (camouflage, sharing, persuasion) for RQ2 and RQ4 |
+| Lan et al. [4] | LLM agents in six-player Avalon with Percival and Morgana | Behavior categories (camouflage, sharing, persuasion) for RQ3 |
 | RLupus [5] | Werewolf; PPO-trained discrete signals for villagers | Closest precedent: villager win rate rose from 0.044 without communication to at most 0.45, and more bandwidth did not always help |
 | RIAL [6], Cao et al. [7] | Messages trained as RL actions; self-interested agents struggle to use cheap talk | How messages are trained, and the main risk |
 | Lowe et al. [8] | Measuring emergent communication | Separating "a message carries information" from "a listener uses it" |
@@ -34,9 +37,9 @@ This README is the experiment plan and design. It will be replaced by a results 
 | Hidden-role games [11], PSRO [12] | Equilibrium concepts for hidden-role games; best responses as a measure of distance from equilibrium | Why this project measures a learning system instead of targeting an equilibrium |
 
 **Intended contributions.**
-- A controlled ladder from silent play to full communication, with rules, algorithm and budget held fixed.
-- A five-slot protocol whose slots switch on and off independently, so "communication" splits into message types that can be added one at a time.
-- Win rates decomposed into the mission path and the assassination path, with interventions that separate "behavior carries information" from "others use that behavior".
+- A message protocol for a hidden-role game in which meaning is fixed by rules instead of being learned: a judgment needs a record that points its way, its justification is derived, and what a player says limits how it may propose and vote.
+- A training recipe that keeps learned talk readable: a hand-written rule teacher is distilled into the speaker, listeners learn before speakers do, and two anchors hold the meaning of talk in place while reinforcement learning chooses what to say.
+- Measurements of what such talk does: win rates decomposed into the mission path and the assassination path, what statements expose about Merlin, and play with logic partners and humans.
 
 ## 3 Game Setup
 
@@ -55,78 +58,91 @@ Players see only the public history and the private knowledge their role allows.
 
 ## 4 Communication Design
 
+The final protocol is configuration **F3** (`configs/comm_F3.yaml`); the full rules are in `src/comm/protocol.py`.
+
 **Timing** follows common tabletop play.
 - Every mission opens with one round of public discussion before its first proposal. Players speak once each in seat order, starting left of the leader, and the leader speaks last. Then the leader proposes and everyone votes.
 - After a rejected proposal, leadership passes on and the next leader proposes at once, without discussion.
 - After the third successful mission, Morgana and then the Assassin each speak once to agree on who Merlin is, before the assassination.
-- There is no dialogue: nobody can address or question another player.
+- There is no free dialogue, but a speaker can answer the players who spoke before it in the same round (slot ⑥).
 
-**Five slots.** Each slot can be switched on or off independently, and every slot can say nothing. Masks enforce the rules below; full details are in `src/comm/protocol.py`.
+**Seven slots.** Every slot can say nothing. Masks enforce the rules below.
 
 | Slot | Content | Values | Rules |
 |---|---|---|---|
-| ① Role claim | Who I claim to be | none, Servant, Percival, Merlin | No evil role can be claimed; claims may be false |
-| ② Judgment | What I think each other player is | per player: none, good, evil, Servant, Merlin, Percival, Morgana, Assassin | **A judgment needs a basis:** a player can be judged good (or evil) only if some record points that way, or the claim covers the judgment (see ③). Before the first mission is finished nothing is on record, so without a claim nobody can judge anybody. Together with the claim, no role more often than the deck holds it (at most two players judged evil, four judged good) |
-| ③ Rationale | Why I judge so | per judged player: a mission, vote or proposal record (with its mission number), or role knowledge | Derived, not chosen. Role knowledge if the claim covers the judgment (a claimed Merlin on good or evil, a claimed Percival on Merlin or Morgana); otherwise the most recent finished mission's record that points the same way as the judgment |
-| ④ Team suggestion | Who should go on the mission | none, or any team of the current size | Nobody the message judges evil; the leader makes no suggestion, since its proposal follows at once |
-| ⑤ Action intent | How I will vote this round | per player: none; **veto** (I reject any team with them this round); **require** (I reject any team without them this round) | No veto on a player judged good, no require with a player judged evil; some team of the current size, and my own suggestion if I make one, must satisfy all conditions |
+| ① Role claim | Who I claim to be | none, Servant, Percival | Nobody claims Merlin or an evil role; claims may be false; a claim stands for the rest of the game |
+| ② Judgment | What I think each other player is | per player: none, good, evil | **A judgment needs a basis:** a player can be judged good (or evil) only if some record points that way. Before the first mission is finished nothing is on record, so nobody can judge anybody. At most two players judged evil and four judged good |
+| ③ Rationale | Why I judge so | per judged player: a mission, vote or proposal record with its mission number | Derived, not chosen: the strongest record that points the judgment's way |
+| ④ Team suggestion | Who should go on the mission | none, or a team of the current size | Optional. The team holds the speaker and nobody the speaker accuses, and it must be among the cleanest teams by the public record that are open to the speaker. The leader makes no suggestion: its proposal follows |
+| ⑤ Action intent | How I will vote this round | per player: none; **veto** (I reject any team with them); **require** (I reject any team without them) | No veto on a player judged good, no require with an accused player; some team must satisfy all conditions |
+| ⑥ Reply | What I say to an earlier speaker of this round | per earlier speaker: none; **endorse** (I agree, and I approve the team you suggested); **dispute** (I disagree) | Endorsing needs a suggested team and no conflict with one's own judgments. A dispute needs a basis, which is derived: the other player accused me, we judged somebody in opposite ways, or their team holds a player I accuse |
+| ⑦ Conditional promise | What I will say after this round's mission | per player: none; **fail-evil** (if they go and the mission fails, I will call them evil); **success-good** (if they go and it succeeds, I will call them good) | Closed where no discussion can follow the outcome; at most two fail-evil and three success-good promises per message |
 
 How a record points:
 - **mission record:** the player was on mission *q*, which failed (evil) or succeeded (good);
-- **vote record:** the player approved mission *q*'s team that then failed, or rejected one that then succeeded (evil); the reverse points to good;
-- **proposal record:** the player led mission *q*'s team, which failed (evil) or succeeded (good);
-- **role knowledge:** "good" or "evil" needs a Merlin claim; "Merlin" or "Morgana" needs a Percival claim.
+- **vote record:** the player approved mission *q*'s team that then failed, or rejected one that then succeeded (evil); the reverse points to good. A forced fifth proposal leaves no vote record;
+- **proposal record:** the player led mission *q*'s team, which failed (evil) or succeeded (good).
 
-In the evil talk before the assassination, only judgments of good players as Servant, Merlin or Percival are open (with a record rationale where one exists, without role knowledge); these need no basis.
+In the evil talk before the assassination the two evil players judge good players as Servant, Merlin or Percival; the Assassin names exactly one player as Merlin and then has to strike that player.
 
-**No unfounded change of mind.** If a player's most recent earlier judgment of someone (in an earlier round's discussion) pointed the other way (good vs evil), a judgment in the new direction needs a record rationale that cites a mission finished since that judgment and points the new way. Without such a record the player can only keep the direction or say nothing about that player. The evil talk is exempt.
+**Words bind deeds.** What a player says limits what it may do, for both teams, through the action masks:
+
+| Said | Bound deed |
+|---|---|
+| Accused a player | Does not propose them, and rejects any team that holds them, until it calls them good or names a new list of suspects |
+| Announced an intent | Proposes and approves only teams that meet it in this round |
+| Suggested a team | Approves exactly that team |
+| Endorsed a speaker | Approves that speaker's team; a leader who endorses proposes it |
+| Disputed a speaker | Rejects that speaker's team and does not propose it |
+| Judged all other members of a team good | Approves that team |
+| Made a promise | Makes that judgment in the next round if the condition holds |
+| Named Merlin (Assassin) | Strikes that player |
+
+Voters are free on the forced fifth proposal of a mission, and the good players' vote guard (Section 3) comes first. A leader approves its own proposal and proposes one of the cleanest teams that its words leave it.
+
+**No unfounded change of mind.** If a player's most recent earlier judgment of someone pointed the other way, a judgment in the new direction needs a record from a mission finished since then.
 
 **Design principles.**
-- **Lies and partial statements are allowed, contradictions are not.** The referee never checks truth, but one message must be internally consistent. For example, it cannot call two players Merlin, cite a successful mission as proof that someone is evil, or suggest a team containing a player it accuses.
-- **A speaker chooses a stance; the rules do the reasoning.** The free choices are the ones a human player makes: what to claim, whom to judge, which team to suggest, how to vote. How a judgment is justified is derived by a fixed rule, so the justification cannot turn into a private code between teammates. A judgment that nothing on record supports cannot be made at all, which is the table's "what makes you say so?" asked in advance. This rule was added after a run without it: with nothing to go on in the first discussion, good players judged three to five others anyway and evil players stayed silent, so talking early had become a password for "I am good" (`results/tables/comm_v3/`).
-- **Words bind nothing, and deeds against them are public.** As at a real table, a player may approve a team with someone it just called evil, break an announced intent, or reject the very team it suggested. Each such deed is counted in a public audit that every player sees: backing (proposing or approving) a team with a player it judged evil that round; backing a team that breaks its announced intent; rejecting exactly the team it suggested; and having vouched for a member of a team that then failed. The forced fifth proposal is not counted for voters. Rule-based players suspect whoever has such counts. A reversed judgment must still cite a new record.
-- **Two chains.** Claim → judgment → rationale is a chain of reasoning. Judgment → team suggestion → intent is a chain of action, which the audit compares with the votes and proposals that follow.
-- **Grounded rationales.** Record-based rationales must cite real events and point the same way as the judgment. There are three reasons. At a real table a distorted record is caught at once. Separating verifiable records from unverifiable role knowledge lets the analysis test whether grounded accusations persuade more. And channels with intrinsic meaning are easier to exploit than pure cheap talk [7]. Evil players can still mislead by citing true records selectively.
-- **Scope.** A message only decides *what* to say. It covers the main content of about two minutes of table talk, but not wording, tone or long arguments.
-- **Meaning is measured, not assumed.** Slot names do not guarantee that agents use them in that sense; truthfulness and listener-influence metrics (Section 7) decide what a slot means.
+- **Meaning is set by rules, choice is left to learning.** A sentence means what it obliges its speaker to do, and a judgment can only be made where the record supports it, with the justification derived by a fixed rule. So a statement cannot be turned into a private code. What reinforcement learning decides is what a human player decides: whether to speak, about whom, which team to back, and how much to hide.
+- **Lies are allowed, contradictions are not.** The referee never checks truth. Evil players accuse good ones and vouch for each other, and Merlin may accuse a player he knows to be good to cover himself; how much he does so is learned. One message cannot contradict itself, and deeds cannot contradict words.
+- **Nobody has to speak.** Every slot may stay empty, team suggestions included. A team that says less also gives less away.
+- **Human seats are free.** A human at the table is bound by none of this: no rule limits what the human says or does. Deeds against one's own words are counted in public for such a seat (a mark every player sees) instead of being prevented.
+- **Scope.** A message decides *what* is said. It covers the main content of about two minutes of table talk, but not wording, tone or long arguments.
+
+**Earlier versions.** *F* had the first five slots, and words bound nothing: deeds against them were only counted. *F2* made words bind deeds and required team suggestions to be clean by the record. *F3* added replies and promises, made the team suggestion optional, and lifted a rule that forbade Merlin to accuse a player he knew to be good (with promises, that rule let the evil team rule out as Merlin whoever promised to accuse a good player). Results of each version are in `results/tables/`.
 
 ## 5 Experimental Design
 
 **Configurations.**
 
-| Config | ① | ② | ③ | ④ | ⑤ | Purpose |
-|---|:-:|:-:|:-:|:-:|:-:|---|
-| S | | | | | | Silent baseline (control): self-play PPO |
-| M | | ✓ | ✓ | | | Minimal communication: who is good or evil, and why |
-| M+Claim | ✓ | ✓ | ✓ | | | Adds role claims |
-| M+Team | | ✓ | ✓ | ✓ | | Adds team suggestions |
-| M+Intent | | ✓ | ✓ | | ✓ | Adds action intent |
-| F | ✓ | ✓ | ✓ | ✓ | ✓ | Full structured communication |
-
-The core layer is S, M and F; the extension layer is the three M+k configurations.
-
-**Experiments.**
-
-| Experiment | Trained as | Evaluated as | Question |
+| Config | Slots | Words and deeds | Purpose |
 |---|---|---|---|
-| S → S | silent | silent | Control |
-| M → M | M | M | Effect of saying who is good or evil, and why |
-| F → F | F | F | Effect of full structured communication |
-| M+k → M+k | M+k | same | What slot *k* adds on top of M |
-| F → S, M → S | F or M | frozen, every slot forced to say nothing | How much a trained communicating policy depends on the channel |
-| F → F−k | F | frozen, slot *k* switched off | How much F depends on slot *k* |
-| S → S masked | silent | parts of the history hidden | Whether the silent baseline uses implicit signals (RQ3) |
+| S | none | | Silent baseline: self-play PPO, frozen at 10 million games per seed |
+| F2 | ①–⑤, every non-leader suggests a team | bound | Earlier version; starting point of F3 |
+| F3 | ①–⑦, every slot optional | bound | Final protocol |
 
-- **Main comparison:** F → F against S → S. M → M against S → S and F → F against M → M form the ladder from silence to full communication.
-- **Two complementary ablations.** Adding a slot measures its increment; removing it at test time measures dependence. If the two disagree, the slots interact. Test-time removal can include out-of-distribution effects and is not the same as relearning to play without that slot.
-- **No S → F:** a silent policy has never seen messages, so opening the channel at test time is meaningless.
-- **Identifying the rationale:** ② and ③ are always switched on together, so ③ can only be measured by switching it off at test time in M and F. That measures dependence, not the effect after training adapts.
-- **Controls:** all configurations share the network, output heads, hyperparameters and training budget; masks alone change which slots are available. The training seed is the unit of replication, with 3 seeds per configuration. Communication configurations start from the same seed's frozen silent baseline so that comparisons are paired, and a silent control adapted the same way with the same budget separates the effect of messages from the effect of further training. Since a branched policy may keep its silent habits, an optional from-scratch F run checks whether warm-starting suppresses communication.
+**Evaluations of a trained talking agent** (frozen policies, no learning, 3 seeds).
+
+| Evaluation | What is played | Question |
+|---|---|---|
+| Same-seed self-play | Good and evil of one seed | Balance inside one training population (RQ1) |
+| Cross-seed play | Good of one seed against evil of another | Balance without conventions shared by training partners (RQ1) |
+| Silence at test time | The same policies with every slot forced to say nothing | How much the trained policy depends on the channel |
+| Word and deed check | Whole games, every statement compared with the deeds that follow | Acceptance check: talk is consistent with action |
+| Private-code checks | Whether the form of a message tells the speaker's team; distance from the rule teacher | Acceptance check: talk stays readable |
+| Leak probes | Which statements let an observer pick Merlin; assassination accuracy by who speaks for each seat | What talk exposes (RQ3) |
+| Logic partners | One to three good seats played by a deduction player with the rule teacher's speech | Acceptance check: play next to a partner with plain human logic |
+| Human test | One human and five agents in the browser, the human unbound | Acceptance check: play with people |
+| Silent play with a foreign partner | S with one good seat from another seed | Whether public actions carry a private signal (RQ2) |
+
+- **Controls:** S, F2 and F3 share the game rules, network size, algorithm and hyperparameters. The training seed is the unit of replication, with 3 seeds. Each talking configuration starts from the same seed's earlier network (F2 from S, F3 from F2), with the new parts at zero weight, so it starts by playing exactly like its predecessor.
+- **No test-time opening of the channel:** a silent policy has never seen messages, so letting it talk at test time is meaningless.
+- **No slot ablations:** see Section 1.
 
 ## 6 Training
 
 **Environment.**
-- A custom six-player state machine (six players and five-slot talk both need custom rules). Phase order: roles → discussion (communication configurations only) → proposal → vote → mission or next leader → three successes or three failures → evil talk (communication configurations only) → assassination → result.
+- A custom six-player state machine (six players and structured talk both need custom rules). Phase order: roles → discussion (communication configurations only) → proposal → vote → mission or next leader → three successes or three failures → evil talk (communication configurations only) → assassination → result.
 - One flat 30-way action space for all phases, in seat-relative coordinates (0 is the acting player), so one network serves every seat:
   - 20 proposal actions, enumerating every legal team of the current size (C(6,2) = 15, C(6,3) = 20, C(6,4) = 15);
   - then approve/reject, Success/Fail (only evil players may play Fail), and the assassination target (the four players other than the two evil ones).
@@ -140,23 +156,25 @@ The core layer is S, M and F; the extension layer is the three M+k configuration
 - mission results and the player's own mission cards;
 - deduction fields (54): which of the 15 possible evil pairs are still consistent with the mission results (a mission with *f* Fail cards had at least *f* evil members), first from public information and then also from the player's private knowledge, plus the seats that are therefore certainly evil or certainly good in each view.
 
-Every seat-indexed field is rotated into the acting player's frame, and a named index (`LAYOUT`) locates each field. Because the history is bounded, this vector is a complete information state, so plain MLPs suffice: no recurrence, no BPTT, and RQ3 interventions can edit the vector directly (the deduction fields must then be recomputed from the edited mission history).
+Every seat-indexed field is rotated into the acting player's frame, and a named index (`LAYOUT`) locates each field. Because the history is bounded, this vector is a complete information state, so plain MLPs suffice: no recurrence, no BPTT, and RQ2 interventions can edit the vector directly (the deduction fields must then be recomputed from the edited mission history).
 
 **Why the deduction fields.** They add no information; they do the logical bookkeeping that DeepRole [1] does explicitly. Without them PPO does not learn this bookkeeping: states with a logically certain evil player are rare (about 5% of good votes) and a single vote decides the outcome in only about 16% of them, so the terminal reward gives little signal for them. Since every communication configuration starts from S, a baseline without this bookkeeping would let communication look useful merely for passing on deductions.
 
-Communication configurations add a 4,369-dimensional message block: 85 global features (13 for the state of the discussion and 72 for the public audit, three thresholds per count and player) plus 36 fixed message slots of 119 features each (one per mission and speaker, plus the evil talk). The actor and the critic each compress every message slot with a shared linear encoder (119 → 32, tanh), and the result is concatenated with the silent vector.
+Communication configurations add a message block (5,919 dimensions in F3): 123 global features (15 for the state of the discussion and 108 for the public counts of deeds against words, three thresholds per count and player) plus 36 fixed message slots of 161 features each (one per mission and speaker, and one per speaker of the evil talk), rotated into the observer's frame.
 
 **Network.**
 - Independent PPO with one actor–critic per team, shared by all seats of that team; the role is an input. The actor and the critic are separate MLPs (two layers of 256 units).
 - One 30-way action head with legal-action masking: illegal logits are set to a large negative value, and entropy is computed over legal actions only.
-- Communication configurations add 22 message heads (130 logits) in the speaker's frame:
+- Communication configurations add message heads in the speaker's frame (F3: 37 heads, 180 logits):
   - claim (4 values);
   - a judgment per other player (8 values);
   - a rationale type (5 values) and a mission number (5 values) per other player;
   - a team (up to 21 values, shared with the proposal encoding);
-  - an intent per other player (3 values).
+  - an intent per other player (3 values);
+  - a reply (3 values) and its basis (4 values) per other player;
+  - a promise per other player (3 values).
 - Sampling runs in two stages. The claim and judgments come first. Rationales, team and intents follow, with their logits conditioned on the first stage through a zero-initialized linear map, and consistency masks applied throughout. A rationale head has exactly one legal value (the derived one), so it adds nothing to the log-probability.
-- The log-probability of a message is the sum over the heads used, and it enters the same PPO ratio as game actions. Every configuration keeps all heads and differs only in masks, so network capacity is identical.
+- The log-probability of a message is the sum over the heads used, and it enters the same PPO ratio as game actions. Derived heads (rationale, reply basis) have exactly one legal value and carry no choice.
 - Messages are trained RIAL-style [6] with the game reward. DIAL is not used, because listeners include opponents. The critic sees only the player's own information.
 
 **Reward and update.**
@@ -173,57 +191,53 @@ Communication configurations add a 4,369-dimensional message block: 85 global fe
    - masking the good players' residual deduction errors moves the good win rate by less than 1 point;
    - the learned Assassin hits Merlin 0.32 of the time in same-seed games, against 0.36 for a vote-reading heuristic, so the heuristic would cost good about 3 points. Across seeds the heuristic falls to 0.18, below chance, because Merlin learned decoy votes against vote readers;
    - an evil team that never approves a clean team at good's match point would cost good 2–4 points.
-3. **Branching.** M, F and the M+k configurations add the message heads to each seed's frozen baseline. The adaptation method (LoRA) and the branch budget are fixed before the communication runs, and a silent control is trained the same way. New message inputs start at zero weight, so a branched network plays exactly like S at first; message heads start uniform.
-4. **Staged communication training** (`scripts/run_comm_pipeline.sh`). (a) A rule teacher (`src/agents/teacher.py`) is distilled into the message heads. (b) Listeners learn while the frozen distilled speaker talks for every learned player. (c) Speakers learn too, without an entropy bonus on messages, and two anchors keep the meaning of talk the teacher's: a KL term to the distilled speaker that falls to a floor and stays there, and the rule teacher itself speaking for a share of the seats of either team in every game. In (b) and (c) a quarter of the games put logic partners (`src/agents/logic_agent.py`, exact deduction, no convention) in one or two Servant or Percival seats, so that actions too have to make sense to a player outside the training run. The reward stays the game result throughout.
-5. **Optional from-scratch control:** at least one F seed trained from scratch with the same total number of games.
+3. **Branching.** A talking configuration adds its message inputs and heads to the network it starts from (F2: each seed's frozen S; F3: each seed's F2). New inputs and heads start at zero weight, so the branched network plays exactly like its predecessor at first. The actor changes only through low-rank updates (LoRA, rank 8); the new message parts and the critic train fully.
+4. **Staged communication training** (`scripts/run_comm_pipeline.sh`), three stages:
+   1. **Distillation** (4,000 games per seed, minutes). A hand-written rule teacher (`src/agents/teacher.py`) speaks; its messages are fitted into the message heads by supervised learning. The network now talks like the teacher, plays as before and does not listen yet. Reinforcement learning from a blank speaker ended in talk that only training partners understood.
+   2. **Listening** (300 iterations). The speaker is frozen and only listening and acting are trained. With fixed talk of known meaning, listeners have a stable target. If both sides changed from the start, listeners would first learn to ignore talk and speakers would then have no reason to mean anything.
+   3. **Anchored talk** (1,000 iterations). Speakers learn too, without an entropy bonus on messages. Two anchors hold the meaning of talk in place: a KL penalty towards the distilled speaker, whose weight falls from 0.1 to 0.03 and stays there, and the rule teacher itself speaking for 40% of the seats, so that listeners keep hearing talk with the teacher's meaning and no code can rely on who is speaking.
+   In stages 2 and 3 a quarter of the games put a logic partner (`src/agents/logic_agent.py`), a player that deduces from the record as a person would, in one or two good seats.
+5. **What the rule teacher is.** It gives every speaker "a good player's view" of the table (public suspicion plus what the mission results make certain) and speaks from it: accuse on about two records against a player, vouch on two records for, suggest the cleanest team, endorse a team close to one's own best, promise what one would then say anyway. Evil players speak from the same view except about their teammate, so the teacher favors neither team.
 
-**Communication diagnostics.**
-- **Toy check:** as in RLupus [5], fix evil to the rule player and train only good players to talk in M. If Merlin's judgments still do not raise good's win rate, look for an implementation error first.
-- **Sender side:** mutual information between slot values and the speaker's true role, or the judged player's true team, by role.
-- **Listener side:** in a frozen checkpoint, replace one slot of one message and measure the change in listeners' vote and proposal distributions (causal influence) [8].
-- **Gate 2:** if listener influence in M is near zero, reduce the open slots or their value ranges before full training.
+**Communication diagnostics** (`scripts/comm_diagnostics.py`, `scripts/dialect_probe.py`, `scripts/trace_game.py`).
+- **Talk, babble, silence:** the same frozen policies with learned talk, with random legal messages, and with every slot silenced.
+- **Private code:** how well a probe tells the speaker's team from the form of its messages alone.
+- **Transcripts:** whole games with roles, statements and their basis, proposals, votes, and every deed checked against the speaker's words.
 
 ## 7 Evaluation and Metrics
 
 **Frozen evaluation.**
-- Each seed plays 1,000 games per condition.
-- Core conditions per seed:
-  - S → S;
-  - M → M, M → S, and M without ③;
-  - F → F, F → S, and four F → F−k (without claim, rationale, team or intent).
+- Each seed plays 2,000 games per condition (1,000 per pair in cross-seed play).
+- Conditions per seed: S; F3 with talk, with every slot silenced, and with one to three logic partners; the same for F2.
 - All conditions share the role assignments and first leaders, and policy sampling uses a separate stream fixed by the evaluation seed, so results are exactly reproducible. There are no training updates and no memory across games.
 
 **RQ1 Game balance.**
-- **Primary metric:** ΔGood = P(good wins | F → F) − P(good wins | S → S). Positive means communication favors good in this setting; adjacent differences on the ladder are reported too. 50% is only a symmetry reference, not a target for an asymmetric game.
+- **Primary metric:** ΔGood = P(good wins | F3) − P(good wins | S). Positive means communication favors good in this setting; F2 is reported next to it. 50% is only a symmetry reference, not a target for an asymmetric game.
 - **Cross-seed evaluation.** Self-play learns conventions that only work inside one training population. In S, good wins 0.50 against its own seed's evil but 0.67 against other seeds' evil (0.46 and 0.65 without the vote guard, which S was trained without; `results/tables/baseline_silent_guard.json`). Every configuration therefore reports a 3 × 3 matrix of good *i* against evil *j* (1,000 paired games per cell), and ΔGood is given on same-seed games (the diagonal) and cross-seed games (off the diagonal). Seeds are crossed only in evaluation, never in training.
 - **Decomposition:** P(good wins) = P(three successes) × [1 − P(Assassin hits Merlin | three successes)]. Evil wins by three failures and by five rejections are reported separately. Assassination accuracy is computed only over games that reach the assassination; a random guess among the four good players hits 25%. Mission success is reported by mission number, and missions that never happen are not counted as failures.
 
-**RQ2 Strategic behavior.**
+**RQ2 Implicit signaling.** S is the object: without an explicit channel, public actions are the only way to pass information. The evidence is the difference between same-seed and cross-seed play (S: good wins 0.50 against its own seed's evil and 0.67 against another seed's), and a test in which one good Servant comes from another seed: if its teammates treat a good player who votes and proposes "with a foreign accent" like an evil one, their reading of public actions is a convention of the training population. The question is whether such a channel exists; decoding it is out of scope.
 
-| Behavior | Measure | Caveat |
-|---|---|---|
-| Team building and voting | Share of good players on proposed and approved teams; approval rates by role; approval of teams with evil players | Stratify by mission and rejection count; approving a last-chance team is not necessarily a mistake |
-| Sabotage | Fail rate of evil players on missions; with both evil players on a team, the distribution of 0, 1 and 2 Fails | Letting a mission pass may be camouflage |
-| Merlin concealment | Log loss of an identity probe trained on public history only | A probe failing does not mean the Assassin is fooled |
-| Percival's dilemma | Percival's team and vote preferences between the two candidates; how Morgana shifts them | Support is not the same as being taken for Merlin |
-| Assassination | Accuracy given three successes; sensitivity to vote and proposal history | Games that reach the assassination are a selected sample |
-
-**RQ3 Implicit signaling.** S is the main object: without an explicit channel, public actions are the only way to pass information. S already shows conventions that work only within one seed; for example, its Assassin hits Merlin 0.32 of the time against its own seed but 0.26 against other seeds' Merlins (chance is 0.25). Evidence comes in three levels, and conclusions go only as far as the level reached:
-1. **Informativeness:** adding individual vote histories improves the prediction of hidden roles. This shows only that behavior carries information.
-2. **Receiver use:** hiding who cast past votes (counts, outcomes and legal actions kept) changes receivers' actions and payoffs, against a placebo mask of the same size and an auxiliary condition trained with masked inputs. This shows the cue is used.
-3. **Strategic signaling** (exploratory): among vote combinations with the same outcome, informed players choose the ones that influence teammates and adapt to their partners.
-
-The first two levels are the minimum. Once the explicit channel exists, the informativeness of votes in M and F is compared with S to judge whether implicit signals are complemented or crowded out. Correlations or task scores alone can mislead about whether communication exists [8].
-
-**RQ4 Message components.**
+**RQ3 Concealment.**
 
 | Analysis | Measure | Caveat |
 |---|---|---|
-| Slot use | Share of "say nothing" per slot over training, by role and team | Frequent use does not mean usefulness |
-| Truthfulness | Claims matching true roles; share of accused players who are evil; whether Merlin hides and evil players impersonate | Meaning comes from behavior, not slot names |
-| Rationale | Effect of record, role-knowledge and no-basis rationales on listeners' votes | Only measurable by switching ③ off at test time |
-| Listener influence | Change in listeners' vote and proposal distributions when one slot is replaced | Large influence is not necessarily good for the speaker's team |
-| Win contribution | Increment from adding a slot and dependence from removing it, by team | Disagreement means the slots interact |
+| Assassination | Accuracy given three successes, with talk and with silence | Games that reach the assassination are a selected sample |
+| Which statements expose Merlin | A probe that picks Merlin among the four good players from counts of each kind of statement, with groups of statements left out | The Assassin also sees deeds, so a probe on statements is not the Assassin's view |
+| Who speaks | Assassination accuracy when the rule teacher speaks for some seats (Merlin, Percival, Servants) instead of the learned speaker | Shows which habits of plain speech give Merlin away |
+| Bluffing | How often Merlin accuses a player he knows to be good, or promises to | Learned, not prescribed |
+
+**Acceptance checks.** These are requirements a talking agent has to meet before its results are read, not research questions.
+
+| Check | Measure | Caveat |
+|---|---|---|
+| Word and deed | Per game and role: deeds against one's own words (none are possible for bound seats; this checks the implementation and counts what free seats do) | Consistency is necessary for sense, not sufficient |
+| Whether talk is right | Share of accused players who are evil and of vouched players who are good, by role | Good players are allowed to be wrong, and Merlin to lie |
+| Distance from the teacher | KL divergence of the learned speaker from the distilled one over training; use of each slot by team | Moving away is expected where the agents learn to hide; the question is what changes |
+| Private code | Information about the speaker's team in the form of a message; cross-seed against same-seed win rates | A probe failing does not prove there is no code |
+| Transcripts | Whole games read by a person | Small sample |
+
+**Play with people** (acceptance check). Win rates and transcripts with one to three logic partners in good seats, and the human test: one human and five agents, the human's seat free (Section 4), games recorded only with consent. A language model is to translate between sentences and messages in both directions (Section 9); until then the table uses fixed sentence templates and a rule-based reader.
 
 **Statistics.** Per-seed metrics come first. Paired differences, effect sizes and 95% intervals then come from a stratified bootstrap over training seeds, with events grouped by game. Wilson intervals for a single model's win rate are given as well, but they do not replace between-seed uncertainty. The good win rate is the pre-specified primary metric. Identity probes split train and test sets by whole games and seeds.
 
@@ -231,16 +245,36 @@ The first two levels are the minimum. Once the explicit channel exists, the info
 
 **Logging.** `evaluate.py --save-games` writes every self-play game as one JSON line: roles by seat, proposals with leaders, teams and approvals, mission cards and results, the assassination target, the winner and reason, the open slots, and every message in speaking order. The evaluation JSON names the checkpoint, seed and silenced slots. Each training run saves its configuration, metrics per iteration, and the code version and host it ran on.
 
-## 8 Scope of Conclusions
+## 8 State on 2026-11-24 and Scope
 
+**Results so far** (3 seeds, 2,000 games per seed and condition; tables in `results/tables/`, figures in `results/figures/`).
+
+| | S | F2 | F3 |
+|---|---|---|---|
+| Good win, same seed (seeds 0 / 1 / 2) | 0.50 (mean) | 0.455 / 0.384 / 0.357 | 0.412 / 0.386 / 0.317 |
+| Good win, cross-seed (mean) | 0.67 | 0.578 | 0.530 |
+| Three successful missions | | 0.658 / 0.582 / 0.539 | 0.608 / 0.602 / 0.517 |
+| Assassin hits Merlin after three successes | 0.32 | 0.310 / 0.340 / 0.338 | 0.322 / 0.360 / 0.388 |
+| Good win with one logic partner | | 0.351 / 0.347 / 0.273 | 0.325 / 0.265 / 0.257 |
+| Deeds against one's own words | | none | none |
+
+- In F3, Merlin learned to cover himself: 73–80% of his accusations are right (100% in F2, where the rule forced it), and from the statements alone an observer picks him less often than in F2 (0.50–0.58 against 0.60–0.61; chance is 0.25).
+- Under the evaluation above, F3's assassination accuracy has been flat since about 400 iterations of anchored talk (`results/figures/comm_F3_by_checkpoint.png`).
+- **Open problem.** The rule teacher shows role knowledge in two habits that the learned speakers have dropped: its Percival vouches for Merlin, and its Merlin never suggests or endorses a team with an evil player. The learned Assassin reads both: at tables where the teacher speaks for 40% of the seats it hits Merlin 0.46 of the time instead of 0.38, and 0.39 once both habits are removed from the teacher, with the same networks (`results/tables/comm_F3/teacher_*`). The teacher is to be changed before further training.
+
+**Scope of conclusions.**
 - Conclusions hold only for the defined slots, value ranges, roles and learned policies. Structured messages are not free discussion; claims about natural language need a separate natural-language experiment.
-- Finite-budget self-play is not a Nash equilibrium, and this project measures a learning system without trying to solve for one. Teammates who cannot share private information make the equilibrium harder to find than in two-player zero-sum games [11]. Win rates inside one training population describe only that population, hence the cross-seed evaluation.
-- If communication is not learned, that is reported as a learning failure, not as "talk has no value". Small win-rate differences are reported with intervals and the effect sizes they rule out. If RQ3 reaches only correlation, it stays exploratory.
+- Finite-budget self-play is not a Nash equilibrium, and this project measures a learning system without trying to solve for one. Teammates who cannot share private information make the equilibrium harder to find than in two-player zero-sum games.
+- The readability of talk is partly imposed and partly learned: the rules fix what a statement means and what it obliges; learning decides what is said. The claim is "readable by construction, strategic by learning", not that reinforcement learning discovered human meaning.
 
-## 9 Optional Extension: Natural Language
+## 9 Language Layer for the Human Test
 
-- **Language layer:** templates or an LLM render five-slot messages as text, or parse text back into slots; this layer needs no Avalon strategy [3].
-- **Experiment:** frozen LLMs play all six seats with isolated contexts, speaking JSON with the open slots plus at most 400 tokens of text. NL-S, NL-M and NL-F mirror S, M and F: a 20-game pilot, then 100–300 games per condition. Invalid outputs follow fixed retry and fallback rules, and their frequency is reported. Results are reported separately.
+The policy trained by reinforcement learning is the player; the structured message is its only interface. A language model is to serve as mouth and ears, and needs no Avalon strategy [3]:
+- **Human to agents:** a typed or spoken sentence is turned into a message. Only clear statements are passed on; hedged ones ("3 seems a bit off") stay in the visible transcript and do not reach the agents.
+- **Agents to human:** a message is rendered as a short natural sentence. The sentence is parsed back and compared with the message; on a mismatch a fixed template is shown instead.
+- **Accuracy first:** translation is measured offline in both directions before it is used with people.
+
+The browser table of the human test (one human, five agents, replies and promises included) currently runs with templates and a rule-based reader.
 
 ## Repository Structure
 
@@ -248,15 +282,15 @@ The first two levels are the minimum. Once the explicit channel exists, the info
 .
 ├── src/                     The code, imported as `src` (scripts and tests run from the repository root)
 │   ├── env/                 Rules, game state machine, action space, information-state encoding
-│   ├── agents/              Actor–critic policy, random and rule-based players
-│   ├── comm/                Five-slot message protocol: slots, consistency masks, observation features
+│   ├── agents/              Actor–critic policy, random and rule-based players, rule teacher (speech), logic partner
+│   ├── comm/                Message protocol: slots, consistency masks, words that bind deeds, observation features
 │   ├── training/            Trajectory recording and GAE, PPO update, opponent pool, trainer, best response
 │   ├── evaluation/          Paired frozen evaluation, win-rate decomposition, message statistics
 │   ├── runner.py            Plays many games in lockstep with batched decisions
 │   └── config.py            YAML-backed training configuration
 ├── baseline/                Frozen silent baseline S: seed0-2 checkpoints (10,000,384 games) with config, metrics and run info
-├── configs/                 baseline_silent.yaml (S), comm_M, comm_M_claim, comm_M_team, comm_M_intent, comm_F, pilot_silent.yaml
-├── scripts/                 train.py, evaluate.py, crossplay.py, analyze_messages.py, best_response.py, exploitability.py, plot_training.py, benchmark.py
+├── configs/                 baseline_silent.yaml (S), comm_F.yaml (F2), comm_F3.yaml (F3, final), pilot_silent.yaml (tests)
+├── scripts/                 train.py, run_comm_pipeline.sh, distill_speaker.py, evaluate.py, crossplay.py, comm_diagnostics.py, dialect_probe.py, trace_game.py, free_seat_check.py, analyze_messages.py, best_response.py, exploitability.py, plot_training.py, benchmark.py, play_web.py
 ├── tests/                   Rules, information leakage, observation encoding, GAE, message protocol, message statistics, short training runs
 ├── results/                 Curated figures and tables
 ├── references/              Paper PDFs (local only, not tracked)
@@ -275,13 +309,13 @@ pytest                                                     # rules, leakage, pro
 python scripts/benchmark.py --games 2048                   # simulation and update throughput on this machine
 python scripts/train.py --config configs/pilot_silent.yaml # 2,048-game pilot
 python scripts/train.py --config configs/baseline_silent.yaml --seed 0 1 2
-python scripts/train.py --config configs/comm_F.yaml --seed 0 1 2 --device cuda   # starts from the frozen baseline
-python scripts/evaluate.py --checkpoint runs/comm_F/seed0/latest.pt --games 1000
-python scripts/evaluate.py --checkpoint runs/comm_F/seed0/latest.pt --silence all        # F -> S
-python scripts/evaluate.py --checkpoint runs/comm_F/seed0/latest.pt --silence rationale  # F -> F without (3)
-python scripts/crossplay.py runs/comm_F/seed{0,1,2}/latest.pt                            # 3 x 3 cross-seed matrix
-python scripts/evaluate.py --checkpoint runs/comm_F/seed0/latest.pt --save-games runs/comm_F/seed0/games.jsonl
-python scripts/analyze_messages.py runs/comm_F/seed*/games.jsonl                        # message statistics (RQ4)
+bash scripts/run_comm_pipeline.sh                          # F2 from the frozen baseline: distill, listen, anchored talk
+CONFIG=configs/comm_F3.yaml BASE='runs/comm_F2/stage3b_F/seed{seed}/checkpoint_01000.pt' OUT=runs/comm_F3 \
+    bash scripts/run_comm_pipeline.sh                      # F3 from each seed's F2
+python scripts/evaluate.py --checkpoint runs/comm_F3/stage3b_F/seed0/checkpoint_01000.pt --games 2000 --partners
+python scripts/evaluate.py --checkpoint runs/comm_F3/stage3b_F/seed0/checkpoint_01000.pt --silence all   # every slot silent
+python scripts/crossplay.py runs/comm_F3/stage3b_F/seed{0,1,2}/checkpoint_01000.pt       # 3 x 3 cross-seed matrix
+python scripts/trace_game.py --checkpoint runs/comm_F3/stage3b_F/seed0/checkpoint_01000.pt --games 300 --out trace.md
 python scripts/best_response.py --checkpoint baseline/seed0/checkpoint_19532.pt --side evil   # optional diagnostic
 ```
 
@@ -344,7 +378,7 @@ Other options: `--port 8766` if the port is taken; `--lan` to listen on all inte
 
 The networks are small, so rollouts run on the CPU in worker processes (`workers` in the config; `src/training/workers.py`) and the PPO update runs on the GPU when there is one. Measured on a laptop with a Ryzen 9 8945HX (16 cores) and an RTX 5070 Ti, including evaluation and checkpoints:
 - **Silent baseline:** three S seeds with 8 workers each take about 2 s per iteration, so the 19,532-iteration baseline takes about 11 h.
-- **Communication configurations:** these add up to 32 speaking decisions per game and a 4,369-dimensional message block to every observation. Six runs in parallel (M and F × 3 seeds) with 4 workers each take about 9.7 s per iteration.
+- **Communication configurations:** these add up to 32 speaking decisions per game and a message block of several thousand dimensions to every observation. The F3 pipeline for three seeds with 5 workers each takes about 7 h (distillation 8 min, listening 80 min, anchored talk 5.5 h), at 20–28 s per iteration of anchored talk, and writes about 8 GB of checkpoints.
 - **GPU stability:** with NVIDIA driver 581.42 that GPU faulted when several runs updated on it at once. With driver 621.01 six parallel runs had no faults. A run that crashes continues from its latest checkpoint with `--resume`.
 
 ## Key References
