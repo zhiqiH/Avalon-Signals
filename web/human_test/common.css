@@ -190,6 +190,8 @@ dialog .log button{margin-left:4px}
 .chip.sm{min-height:32px;padding:0 11px;font-size:13px}
 .stances{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px}
 .stance{display:flex;gap:6px;flex-wrap:wrap}
+.stances.wide{grid-template-columns:1fr}
+.composer .note.due{color:var(--ink)}
 .composer .note{margin:0;font-size:13px;color:var(--muted)}
 .heard{margin:0;font-size:14px;background:var(--sunken);border-radius:10px;padding:8px 12px}
 .ignored{margin:0;font-size:13px;color:var(--muted)}

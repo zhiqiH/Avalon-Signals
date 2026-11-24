@@ -9,7 +9,7 @@ let S = {active: false}, sel = new Set(), busy = false, timer = null;
 const setup = {role: 'random', seat: 1, baseline: 0, share: null, mode: 'talk'};
 // What the visitor is about to say (a stance, see scripts/human_test_talk.py); the suggested team is `sel`.
 let draft = newDraft();
-function newDraft() { return {claim: null, judge: {}, veto: [], require: [], ignored: [], text: '', typed: false}; }
+function newDraft() { return {claim: null, judge: {}, veto: [], require: [], reply: {}, promise: {}, ignored: [], text: '', typed: false}; }
 
 function pref(key, fallback) { try { const v = localStorage.getItem(key); return v === null ? fallback : v; } catch (e) { return fallback; } }
 function setPref(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
@@ -44,7 +44,8 @@ async function parseText() {
   busy = true; showErr('');
   try {
     const r = await api('/api/parse', {text: draft.text});
-    Object.assign(draft, {claim: r.stance.claim, judge: r.stance.judge, veto: r.stance.veto, require: r.stance.require, ignored: r.ignored, typed: true});
+    Object.assign(draft, {claim: r.stance.claim, judge: r.stance.judge, veto: r.stance.veto, require: r.stance.require,
+                          reply: r.stance.reply || {}, promise: r.stance.promise || {}, ignored: r.ignored, typed: true});
     sel = new Set(r.stance.team || []);
     render();
   } catch (e) { showErr(e.message); } finally { busy = false; }
@@ -54,8 +55,9 @@ const isEvilRole = k => k === 'MORGANA' || k === 'ASSASSIN';
 const talking = () => S.active && !S.done && (S.phase === 'DISCUSS' || S.phase === 'EVIL_DISCUSS');
 const suggesting = () => S.active && !S.done && S.phase === 'DISCUSS' && S.human_turn && S.human !== S.leader;
 
-// A message (the agents' or the visitor's draft) as one sentence in the page language.
-function sentence(m) {
+// A message (the agents' or the visitor's draft) as one sentence in the page language. `teams`: seat -> the team
+// it suggested in the same round, so that a reply can say what it means for that team.
+function sentence(m, teams = {}) {
   const zh = I18N.lang === 'zh', parts = [];
   if (m.claim) parts.push(T('s.claim.' + m.claim));
   for (const j of m.judge || []) {
@@ -66,13 +68,29 @@ function sentence(m) {
   if (m.team && m.team.length) parts.push(T('s.team', {team: I18N.seats(m.team)}));
   for (const n of m.veto || []) parts.push(T('s.veto', {n}));
   for (const n of m.require || []) parts.push(T('s.require', {n}));
+  for (const r of m.reply || []) {
+    const b = r.basis ? T('rb.' + r.basis) : '';
+    parts.push(r.reply === 'endorse' ? T('s.endorse', {n: r.seat}) : T(teams[r.seat] ? 's.disputeTeam' : 's.dispute', {n: r.seat, b}));
+  }
+  for (const kind of ['fail_evil', 'success_good']) {  // promises of one kind are said together
+    const about = (m.promise || []).filter(k => k.promise === kind).map(k => k.seat);
+    if (about.length) parts.push(T(`s.promise.${kind}${about.length > 1 ? '.n' : ''}`, {n: I18N.seats(about)}));
+  }
   return parts.length ? parts.join(zh ? '；' : '; ') : T('s.none');
 }
 function draftStance() {
   const team = suggesting() && sel.size === S.team_size ? [...sel].sort((a, b) => a - b) : null;
-  return {claim: draft.claim, judge: draft.judge, team, veto: draft.veto, require: draft.require};
+  return {claim: draft.claim, judge: draft.judge, team, veto: draft.veto, require: draft.require, reply: draft.reply, promise: draft.promise};
 }
-const draftMessage = () => ({...draftStance(), judge: Object.entries(draft.judge).map(([seat, judgment]) => ({seat: +seat, judgment}))});
+const draftMessage = () => ({...draftStance(), judge: Object.entries(draft.judge).map(([seat, judgment]) => ({seat: +seat, judgment})),
+  reply: Object.entries(draft.reply).map(([seat, reply]) => ({seat: +seat, reply})),
+  promise: Object.entries(draft.promise).map(([seat, promise]) => ({seat: +seat, promise}))});
+// seat -> suggested team, for the messages of one round, and for the round being spoken now
+const teamsOf = messages => Object.fromEntries(messages.filter(m => m.team && m.team.length).map(m => [m.speaker, m.team]));
+function teamsNow() {
+  const last = S.talk && S.talk.length ? S.talk[S.talk.length - 1] : null;
+  return last && !last.evil_talk && last.quest === S.quest ? teamsOf(last.messages) : {};
+}
 
 const pos = s => (S.active ? (s - S.human + 6) % 6 : s - 1);  // your seat sits at the bottom of the table
 function canPick(s) {
@@ -149,7 +167,7 @@ function renderCenter() {
   line.className = 'event';
   if (!ev) { line.textContent = ''; return; }
   if (ev.kind === 'start') line.textContent = T('ev.start');
-  else if (ev.kind === 'speech') line.textContent = `${who(ev.message.speaker)}${I18N.lang === 'zh' ? '：' : ': '}${sentence(ev.message)}`;
+  else if (ev.kind === 'speech') line.textContent = `${who(ev.message.speaker)}${I18N.lang === 'zh' ? '：' : ': '}${sentence(ev.message, speechTeams())}`;
   else if (ev.kind === 'proposal') line.textContent = T('ev.proposal', {l: ev.leader, team: I18N.seats(ev.team || [])});
   else if (ev.kind === 'vote') {
     const y = ev.votes.filter(Boolean).length;
@@ -162,6 +180,11 @@ function renderCenter() {
 }
 
 const who = s => (S.active && s === S.human ? T('you') : T('seat', {n: s}));
+// The teams of the round the last speech belongs to: always the last round of the log.
+function speechTeams() {
+  const round = S.talk && S.talk.length ? S.talk[S.talk.length - 1] : null;
+  return round && !round.evil_talk ? teamsOf(round.messages) : {};
+}
 function btn(label, cls, onClick, disabled = false) {
   const b = el('button', `btn ${cls}`); b.type = 'button'; b.textContent = label; b.disabled = disabled;
   b.addEventListener('click', onClick); return b;
@@ -175,7 +198,7 @@ function renderDock() {
   if (!S.human_turn) {
     dock.append(btn(T('continue') + ' →', 'primary wide', () => move(null)));
     // Speech needs time to be read: the pause grows with the sentence just shown.
-    const pause = S.event.kind === 'speech' ? Math.min(6000, 1600 + 70 * sentence(S.event.message).length) : 1500;
+    const pause = S.event.kind === 'speech' ? Math.min(8000, 1600 + 70 * sentence(S.event.message, speechTeams()).length) : 1500;
     if ($('auto').checked) timer = setTimeout(() => { timer = null; if (!busy && !$('setup').open) move(null); }, pause);
     return;
   }
@@ -228,7 +251,15 @@ function composer(dock) {
     ? [[undefined, ''], ['merlin', I18N.role('MERLIN'), 'evil'], ['percival', I18N.role('PERCIVAL')], ['servant', I18N.role('SERVANT')]]
     : [[undefined, ''], ['good', T('side.good'), 'good'], ['evil', T('side.evil'), 'evil']];
   const intentStates = [['', T('say.anyTeam')], ['veto', T('say.veto'), 'evil'], ['require', T('say.require'), 'good']];
-  const rows = el('div', 'stances');
+  // Replies go to the players who already spoke in this round; promises are about this round's quest.
+  const say = (!evilTalk && S.say) || {reply: [], promise: [], promised: []};
+  const spoke = Object.fromEntries(say.reply.map(o => [o.seat, o.team]));
+  const promiseStates = [[undefined, T('say.none')], ...say.promise.map(k => [k, T('say.' + k), k === 'fail_evil' ? 'evil' : 'good'])];
+  if (say.promised.length) {
+    const zh = I18N.lang === 'zh';
+    box.append(el('p', 'note due', T('say.promised') + say.promised.map(x => T('s.judge', {n: x.seat, j: zh ? T('side.' + x.judgment) : T('side.' + x.judgment).toLowerCase()})).join(zh ? '；' : '; ')));
+  }
+  const rows = el('div', 'stances' + (say.reply.length || say.promise.length ? ' wide' : ''));
   for (let s = 1; s <= 6; s++) {
     if (s === S.human || (evilTalk && S.known_evil.includes(s))) continue;
     const row = el('div', 'stance');
@@ -239,12 +270,17 @@ function composer(dock) {
         draft.veto = draft.veto.filter(x => x !== s); draft.require = draft.require.filter(x => x !== s);
         if (v) draft[v].push(s);
       }));
+      if (s in spoke) {
+        const replyStates = [[undefined, T('say.none')], ...(spoke[s] ? [['endorse', T('say.endorse'), 'good']] : []), ['dispute', T('say.dispute'), 'evil']];
+        row.append(cycle(T('say.reply'), draft.reply[s], replyStates, v => { if (v) draft.reply[s] = v; else delete draft.reply[s]; }));
+      }
+      if (say.promise.length) row.append(cycle(T('say.promise'), draft.promise[s], promiseStates, v => { if (v) draft.promise[s] = v; else delete draft.promise[s]; }));
     }
     rows.append(row);
   }
   box.append(rows);
   if (suggesting()) box.append(el('p', 'note', T('say.team', {k: sel.size, n: S.team_size})));
-  const heard = el('p', 'heard'); heard.textContent = T('say.heard') + sentence(draftMessage());
+  const heard = el('p', 'heard'); heard.textContent = T('say.heard') + sentence(draftMessage(), teamsNow());
   box.append(heard);
   for (const x of draft.ignored) { const p = el('p', 'ignored'); p.textContent = `“${x.text}” — ${T('why.' + x.why)}`; box.append(p); }
   const partial = suggesting() && sel.size > 0 && sel.size !== S.team_size;
@@ -262,10 +298,11 @@ function renderTalk() {
   $('talk').replaceChildren(...[...S.talk].reverse().map(round => {
     const box = el('div', 'round');
     box.append(el('p', 'round-title', round.evil_talk ? T('evilTalk') : T('quest', {q: round.quest})));
+    const teams = teamsOf(round.messages);
     for (const m of round.messages) {
       const line = el('p', 'line'), name = el('b', m.speaker === S.human ? 'you' : '');
       name.textContent = who(m.speaker);
-      line.append(name, document.createTextNode(sentence(m)));
+      line.append(name, document.createTextNode(sentence(m, teams)));
       box.append(line);
     }
     return box;

@@ -1,9 +1,9 @@
 """Human test, match mode: one human and five frozen AI players (served by scripts/human_test.py).
 
 Two kinds of table: "silent" (the silent baseline) and "talk" (the talking agents, which discuss before every
-quest in the five-slot protocol). At a talk table the human's seat is free: nothing limits what it says or does,
-only clear statements reach the agents (scripts/human_test_talk.py), and deeds against one's words are counted
-in the public audit. No human seat is held to the good players' vote guard.
+quest in the slot protocol, replies and conditional promises included). At a talk table the human's seat is free:
+nothing limits what it says or does, only clear statements reach the agents (scripts/human_test_talk.py), and
+deeds against one's words are counted in the public audit. No human seat is held to the good players' vote guard.
 
 Each browser gets its own table; frozen weights are shared, game state is not. Completed games of visitors
 who agreed to share are appended to the match log (JSONL, one game per line, no IP or browser data).
@@ -33,7 +33,7 @@ from src.env.rules import N_PLAYERS, N_QUESTS, QUEST_SIZES, Phase, Role, WinReas
 from src.training.checkpoint import comm_config, load_checkpoint, load_policies
 
 ROOT = Path(__file__).resolve().parents[1]
-TALK_DIR = ROOT / "comm_F2"  # seed<k>/checkpoint_01000.pt: the talking agents (local files, not in git)
+TALK_DIR = ROOT / "comm_F3"  # seed<k>/checkpoint_01000.pt: the talking agents (local files, not in git)
 MODES = ("silent", "talk")
 CONSENT_VERSION = 2  # Bump when the consent wording in web/human_test changes (2: one-line text, 2026-11-20).
 ROLE_NAMES = {Role.SERVANT: "忠臣", Role.MERLIN: "梅林", Role.PERCIVAL: "派西维尔",
@@ -311,8 +311,9 @@ class HumanTable:
         if g.comm.enabled:
             state["speaker"] = g.acting_players()[0] + 1 if g.in_discussion else None
             state["talk"] = self.talk_log()
-            # Public count per seat of deeds against its own words (judgment, intent, own suggestion).
-            state["broken_words"] = [int(n) for n in g.audit[:, [P.A_JUDGE, P.A_INTENT, P.A_TEAM]].sum(axis=1)]
+            # Public count per seat of deeds against its own words (judgment, intent, own suggestion, reply, promise).
+            state["broken_words"] = [int(n) for n in g.audit[:, [P.A_JUDGE, P.A_INTENT, P.A_TEAM, P.A_REPLY, P.A_PROMISE]].sum(axis=1)]
+            state["say"] = talk.openings(g, h) if human_turn and g.phase == Phase.DISCUSS else None
         if g.done:
             state["result"] = {"good_won": bool(g.good_won), "human_won": bool(g.good_won) != g.is_evil_seat(h),
                                "reason": REASONS[g.win_reason], "target": g.assassin_target + 1,
