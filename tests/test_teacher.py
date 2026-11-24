@@ -228,6 +228,33 @@ def test_teacher_merlin_promises_like_a_good_player_where_he_may_accuse_good_pla
     assert about_good > 0 and about_evil > 0  # the promises only a player without his sight would make
 
 
+def test_a_teacher_that_hides_roles_speaks_for_merlin_and_percival_as_for_a_servant():
+    hide = P.CommConfig(enabled=True, reply=True, promise=True, team_optional=True, merlin_may_accuse_good=True,
+                        teacher_hides_roles=True)
+    games, log = play_with_teacher(hide, n=200, knowledge=1.0)
+    assert all(g.done for g in games)
+    assert not any(g.audit[:, [P.A_JUDGE, P.A_INTENT, P.A_TEAM, P.A_REPLY, P.A_PROMISE]].any() for g in games)
+    teacher = TeacherSpeaker(merlin_knowledge_prob=1.0)
+    false_words = {Role.MERLIN: 0, Role.SERVANT: 0}
+    for phase, role, speaker, known_evil, msg, game, *_ in log:
+        if phase != Phase.DISCUSS or role not in (Role.MERLIN, Role.PERCIVAL, Role.SERVANT):
+            continue
+        if role in false_words:  # judged against the truth: evil called good, good called evil
+            evil = np.array([game.is_evil_seat(int(s)) for s in P._others(speaker)])
+            judged = msg[P.H_JUDGE:P.H_JUDGE + P.N_OTHERS]
+            false_words[role] += int(((judged == P.J_GOOD) & evil).sum() + ((judged == P.J_EVIL) & ~evil).sum())
+    assert false_words[Role.MERLIN] > 0  # he no longer stands out by never being wrong
+    for game in games[:40]:  # the scores every statement comes from: the good player's view, for all three roles
+        for role in (Role.MERLIN, Role.PERCIVAL):
+            seat = game.seat_of(role)
+            assert not teacher.merlin_knows(game)
+            assert np.array_equal(teacher.scores(game, seat), good_view(game, seat))
+    plain = P.CommConfig(enabled=True, reply=True, promise=True, team_optional=True, merlin_may_accuse_good=True)
+    game = AvalonGame(np.random.default_rng(3), comm=plain)
+    percival = game.seat_of(Role.PERCIVAL)
+    assert not np.array_equal(teacher.scores(game, percival), good_view(game, percival))  # the habit, where it stays
+
+
 def test_where_suggestions_are_a_choice_the_teacher_names_a_team_only_with_a_reason():
     opt = P.CommConfig(enabled=True, reply=True, promise=True, team_optional=True)
     games, log = play_with_teacher(opt, n=120)

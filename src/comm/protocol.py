@@ -153,6 +153,11 @@ class CommConfig:
     # Whether Merlin may call evil (and promise to call evil) a player he knows to be good. False (F, F2): he
     # cannot, which lets the evil team rule out as Merlin whoever accuses a good player. True: no such rule.
     merlin_may_accuse_good: bool = False
+    # How the rule teacher (agents/teacher.py) speaks for Merlin and Percival. False (F, F2, the first F3 networks):
+    # with their role habits (Percival leans towards his two candidates; Merlin, where he uses his knowledge, never
+    # says what he knows to be false). True: by the public record alone, as for a Servant. The habits show the evil
+    # team who Merlin is, and a seat the teacher speaks for cannot learn to hide them.
+    teacher_hides_roles: bool = False
     silence: list[str] = field(default_factory=list)  # test time: slots forced to say nothing (F -> F-k, F -> S)
 
     def __post_init__(self) -> None:

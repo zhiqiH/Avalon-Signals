@@ -31,6 +31,8 @@ comm:
   promise: true
   team_optional: true
   merlin_may_accuse_good: true
+  teacher_hides_roles: true   # the rule teacher speaks for Merlin and Percival by the record alone (added after
+                              # the networks of tag f3-2026-11-24, which were trained with its role habits)
 
 model:
   hidden_sizes: [256, 256]
