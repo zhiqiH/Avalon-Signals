@@ -33,7 +33,7 @@ from src.env.rules import N_PLAYERS, N_QUESTS, QUEST_SIZES, Phase, Role, WinReas
 from src.training.checkpoint import comm_config, load_checkpoint, load_policies
 
 ROOT = Path(__file__).resolve().parents[1]
-TALK_DIR = ROOT / "comm_F3"  # seed<k>/checkpoint_01000.pt: the talking agents (local files, not in git)
+TALK_DIR = ROOT / "comm"  # seed<k>/checkpoint.pt: the talking agents (local files, not in git)
 MODES = ("silent", "talk")
 CONSENT_VERSION = 2  # Bump when the consent wording in web/human_test changes (2: one-line text, 2026-11-20).
 ROLE_NAMES = {Role.SERVANT: "忠臣", Role.MERLIN: "梅林", Role.PERCIVAL: "派西维尔",
@@ -129,7 +129,7 @@ class HumanTable:
             raise ValueError("请选择是否共享本局数据。")
         key = (mode, baseline)
         if key not in self.models:
-            path = (self.talk_dir / f"seed{baseline}/checkpoint_01000.pt" if mode == "talk"
+            path = (self.talk_dir / f"seed{baseline}/checkpoint.pt" if mode == "talk"
                     else ROOT / f"baseline/seed{baseline}/checkpoint_19532.pt")
             nets = load_policies(path)
             comm = comm_config(load_checkpoint(path)["config"])

@@ -161,7 +161,7 @@ def main():
     parser.add_argument("--match-log", type=Path, default=LOG_DIR / "match_games.jsonl",
                         help="shared matches are appended here (JSONL)")
     parser.add_argument("--talk-dir", type=Path, default=TALK_DIR,
-                        help="talking agents of the match mode: seed<k>/checkpoint_01000.pt")
+                        help="talking agents of the match mode: seed<k>/checkpoint.pt")
     parser.add_argument("--analysis-dir", type=Path, default=SAVE_DIR, help="analysis records (one JSON file each)")
     parser.add_argument("--export-analysis", type=Path, metavar="OUT.jsonl",
                         help="write the shared analysis records (without record codes) to OUT.jsonl and exit")
