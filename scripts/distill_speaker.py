@@ -1,7 +1,7 @@
 """Distil the rule teacher's messages into the message heads of a branched network (communication stage 1).
 
-    python scripts/distill_speaker.py --baseline baseline/seed0/checkpoint_19532.pt --config configs/comm_M.yaml \
-        --seed 0 --out runs/pilot_comm/distill_M/seed0
+    python scripts/distill_speaker.py --baseline baseline/seed0/checkpoint_19532.pt --config configs/comm_F.yaml \
+        --seed 0 --out runs/comm_F/distill_F/seed0
 
 1. Branch both teams' networks from the frozen silent checkpoint exactly as training does (message inputs and
    heads at zero weight, so the network plays exactly like S). The starting checkpoint can also be a
