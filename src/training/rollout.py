@@ -8,7 +8,8 @@ from typing import Sequence
 import numpy as np
 
 from ..agents.base import ActResult, Request
-from ..comm.protocol import H_CLAIM, H_INTENT, H_JUDGE, H_RTYPE, H_TEAM, MSG_HEAD_OFFSETS, MSG_HEAD_SIZES, N_OTHERS
+from ..comm.protocol import (H_CLAIM, H_INTENT, H_JUDGE, H_PROMISE, H_REPLY, H_RTYPE, H_TEAM, MSG_HEAD_OFFSETS,
+                             MSG_HEAD_SIZES, N_OTHERS)
 from ..env.actions import N_ACTIONS
 from ..env.game import AvalonGame
 from ..env.observation import OBS_DIM
@@ -97,6 +98,7 @@ class TrajectoryRecorder:
 USAGE_HEADS = {
     "claim": [H_CLAIM], "judgment": list(range(H_JUDGE, H_JUDGE + N_OTHERS)),
     "rationale": list(range(H_RTYPE, H_RTYPE + N_OTHERS)), "team": [H_TEAM], "intent": list(range(H_INTENT, H_INTENT + N_OTHERS)),
+    "reply": list(range(H_REPLY, H_REPLY + N_OTHERS)), "promise": list(range(H_PROMISE, H_PROMISE + N_OTHERS)),
 }
 
 

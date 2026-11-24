@@ -247,6 +247,7 @@ class AvalonGame:
         self.prop_team[q, a] = self.team
         if self.comm.enabled:
             self._audit_backing(self.leader)
+            self.audit[self.leader, P.A_REPLY] += P.against_reply(self, self.leader, backs=True)
         self.phase = Phase.VOTE
 
     def _audit_backing(self, player: int) -> None:
@@ -256,6 +257,10 @@ class AvalonGame:
         self.audit[player, P.A_INTENT] += broken_intent
 
     def _speak(self, speaker: int, msg: np.ndarray) -> None:
+        if self.phase == Phase.DISCUSS and speaker in self.free_seats and self.comm.can_speak("alignment"):
+            promised = P.promised_judgments(self, speaker)  # everybody else is held to its promises by the masks
+            judged = msg[P.H_JUDGE:P.H_JUDGE + P.N_OTHERS]
+            self.audit[speaker, P.A_PROMISE] += int(((promised > P.J_NONE) & (judged != promised)).sum())
         if self.phase == Phase.DISCUSS:
             self.msg_log[self.quest, speaker] = msg
             self.msg_feat[self.quest, speaker] = P.message_features(speaker, msg, self.team_size)
@@ -282,6 +287,7 @@ class AvalonGame:
                     self._audit_backing(p)
                 elif P.is_own_suggestion(self, p):
                     self.audit[p, P.A_TEAM] += 1
+                self.audit[p, P.A_REPLY] += P.against_reply(self, p, backs=bool(approve[p]))
         self.leader = (self.leader + 1) % N_PLAYERS  # leadership passes after every vote
         if approved:
             self.quest_team[q] = self.team

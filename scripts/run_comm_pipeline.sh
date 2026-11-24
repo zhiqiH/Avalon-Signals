@@ -14,12 +14,16 @@
 # stage resumes from its latest.pt.
 #
 #   bash scripts/run_comm_pipeline.sh                      # runs/comm_F, seeds 0 1 2
+#   CONFIG=configs/comm_F3.yaml BASE='runs/comm_F2/stage3b_F/seed{seed}/checkpoint_01000.pt' OUT=runs/comm_F3 \
+#       bash scripts/run_comm_pipeline.sh                  # F3 (reply, promise) from each seed's F2
 #   SEEDS="0" OUT=/tmp/smoke LISTEN_ITERS=2 TALK_ITERS=2 DISTILL_GAMES=200 bash scripts/run_comm_pipeline.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PY=${PY:-python}
 OUT=${OUT:-runs/comm_F}
+CONFIG=${CONFIG:-configs/comm_F.yaml}
+BASE=${BASE:-"baseline/seed{seed}/checkpoint_19532.pt"}  # where the distillation starts ("{seed}" is filled in)
 SEEDS=${SEEDS:-"0 1 2"}
 WORKERS=${WORKERS:-5}
 LISTEN_ITERS=${LISTEN_ITERS:-300}
@@ -45,18 +49,18 @@ pids=()
 for s in $SEEDS; do
     [ -f "$OUT/distill_F/seed$s/checkpoint_00000.pt" ] && continue
     mkdir -p "$OUT/distill_F/seed$s"
-    "$PY" scripts/distill_speaker.py --baseline "baseline/seed$s/checkpoint_19532.pt" --config configs/comm_F.yaml \
+    "$PY" scripts/distill_speaker.py --baseline "${BASE//\{seed\}/$s}" --config "$CONFIG" \
         --seed "$s" --games "$DISTILL_GAMES" --out "$OUT/distill_F/seed$s" > "$OUT/distill_F/seed$s/distill.log" 2>&1 &
     pids+=($!)
 done
 for pid in ${pids[@]+"${pids[@]}"}; do wait "$pid"; done
 
 stage "2/4 listener stage ($LISTEN_ITERS iterations)"
-train --config configs/comm_F.yaml --name stage2_F --total-games $((LISTEN_ITERS * GAMES_PER_ITER)) \
+train --config "$CONFIG" --name stage2_F --total-games $((LISTEN_ITERS * GAMES_PER_ITER)) \
     --init-from "$DISTILLED" --set "adapt.speaker_from=$DISTILLED" "${MIX[@]}"
 
 stage "3/4 anchored talk ($TALK_ITERS iterations, KL floor $KL_FLOOR, teacher share $TEACHER_SHARE)"
-train --config configs/comm_F.yaml --name stage3b_F --total-games $((TALK_ITERS * GAMES_PER_ITER)) \
+train --config "$CONFIG" --name stage3b_F --total-games $((TALK_ITERS * GAMES_PER_ITER)) \
     --init-from "$LISTENED" --set ppo.msg_ent_coef=0.0 --set adapt.msg_kl_coef=0.1 --set adapt.msg_kl_anneal=330 \
     --set "adapt.msg_kl_floor=$KL_FLOOR" --set "adapt.teacher_share=$TEACHER_SHARE" \
     --set "adapt.anchor_from=$DISTILLED" "${MIX[@]}"

@@ -4,7 +4,9 @@
         --seed 0 --out runs/pilot_comm/distill_M/seed0
 
 1. Branch both teams' networks from the frozen silent checkpoint exactly as training does (message inputs and
-   heads at zero weight, so the network plays exactly like S).
+   heads at zero weight, so the network plays exactly like S). The starting checkpoint can also be a
+   communication network (F2 for the extended configuration): it keeps its weights, and the parts for the
+   reply and promise slots start at zero (`policy.upgrade_legacy_state`).
 2. Play self-play games: actions come from these networks, every message from the rule teacher
    (src/agents/teacher.py). Record each speaking decision.
 3. Fit only the message heads: the rows of the actor's output layer that belong to message heads, and the
@@ -34,7 +36,7 @@ from src.config import config_to_dict, load_config  # noqa: E402
 from src.env.actions import N_ACTIONS  # noqa: E402
 from src.env.game import AvalonGame  # noqa: E402
 from src.runner import play  # noqa: E402
-from src.training.checkpoint import load_checkpoint, save_checkpoint  # noqa: E402
+from src.training.checkpoint import comm_config, load_checkpoint, save_checkpoint  # noqa: E402
 from src.training.rollout import TEAMS  # noqa: E402
 
 
@@ -181,7 +183,7 @@ def fit(net: ActorCritic, rows: list, epochs: int, device: torch.device, log_pre
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--baseline", required=True, help="frozen silent checkpoint to branch from")
+    parser.add_argument("--baseline", required=True, help="checkpoint to branch from (silent, or a communication one)")
     parser.add_argument("--config", required=True, help="communication config (its comm block and model)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--games", type=int, default=4000)
@@ -195,7 +197,10 @@ def main() -> None:
     nets = {}
     for t in TEAMS:
         nets[t] = ActorCritic(hidden_sizes=cfg.model.hidden_sizes, comm=True, deduction=cfg.model.deduction)
-        load_silent_weights(nets[t], silent["nets"][t])
+        if comm_config(silent["config"]).enabled:
+            nets[t].load_state_dict(silent["nets"][t])
+        else:
+            load_silent_weights(nets[t], silent["nets"][t])
     torch.set_num_threads(8)
     rows = collect(nets, cfg.comm, args.games, args.seed * 1000 + 7, args.merlin_knowledge_prob)
     print(f"collected {len(rows)} speaking decisions from {args.games} games in {time.time() - t0:.0f}s")

@@ -22,7 +22,7 @@ import torch
 import yaml
 
 from ..agents.logic_agent import LogicController
-from ..agents.policy import ActorCritic, PolicyController, load_silent_weights
+from ..agents.policy import ActorCritic, PolicyController, is_legacy_state, load_silent_weights
 from ..agents.rule_agent import RuleController
 from ..config import TrainConfig, config_to_dict
 from ..env.game import AvalonGame
@@ -129,6 +129,7 @@ def train(cfg: TrainConfig) -> Path:
     iteration = games_seen = 0
     latest = run_dir / "latest.pt"
     ckpt = None
+    legacy = False  # the starting network predates the reply and promise slots: its adapters do not fit
     if cfg.resume and latest.exists():
         ckpt = load_checkpoint(latest, device)
         for t in TEAMS:
@@ -141,20 +142,23 @@ def train(cfg: TrainConfig) -> Path:
         init_from = cfg.init_from.format(seed=cfg.seed)
         ckpt = load_checkpoint(init_from, device)
         branch = cfg.comm.enabled and not comm_config(ckpt["config"]).enabled
+        legacy = cfg.comm.enabled and is_legacy_state(ckpt["nets"]["good"])
         for t in TEAMS:
             if branch:
                 load_silent_weights(nets[t], ckpt["nets"][t])
             else:
                 nets[t].load_state_dict(ckpt["nets"][t])
-        print(f"initialised network weights from {init_from}" + (" (silent branch point)" if branch else ""))
+        print(f"initialised network weights from {init_from}" + (" (silent branch point)" if branch else "")
+              + (" (before the reply and promise slots: new parts start at zero)" if legacy else ""))
     if cfg.adapt.lora_rank > 0:
         for t in TEAMS:
             apply_lora(nets[t], cfg.adapt.lora_rank, cfg.adapt.lora_scale).to(device)
-            if ckpt is not None and ckpt.get("adapter"):  # same adapters as the run this one resumes or continues
+            if ckpt is not None and ckpt.get("adapter") and not legacy:  # same adapters as the run it resumes or continues
                 nets[t].load_state_dict(ckpt["adapter"][t])
         n_train = sum(p.numel() for p in trainable_parameters(nets["good"]))
         print(f"LoRA rank {cfg.adapt.lora_rank}: {n_train:,} trainable parameters per team"
-              + (" (adapters continued from the starting checkpoint)" if ckpt is not None and ckpt.get("adapter") else ""))
+              + (" (adapters continued from the starting checkpoint)" if ckpt is not None and ckpt.get("adapter")
+                 and not legacy else ""))
     opts = {t: torch.optim.Adam(trainable_parameters(nets[t]), lr=cfg.ppo.lr, eps=1e-5) for t in TEAMS}
     if cfg.resume and iteration > 0:
         for t in TEAMS:

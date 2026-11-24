@@ -1,0 +1,62 @@
+# Communication configuration F3: F (five slots, words bind deeds) plus two slots (comm/protocol.py):
+#   reply    later speakers of a round endorse or dispute earlier ones (a dispute's basis is derived); the
+#            reply binds the vote on the answered player's team, and a leader's endorsement adopts that team;
+#   promise  "if r goes on this round's quest and it fails / succeeds, I will call r evil / good" next round.
+# A team suggestion is a choice in F3 (team_optional): nobody has to name a team (in F and F2 every non-leader does).
+# Merlin may accuse a player he knows to be good (merlin_may_accuse_good): in F and F2 he cannot, and with promises
+# that rule gave him away (whoever promised to accuse a good player was not Merlin).
+# Each seed starts from its own F2 network (runs/comm_F2/stage3b_F/seed{seed}/checkpoint_01000.pt): the parts for
+# the new slots start at zero, so the run starts by playing exactly like F2. Train it with the staged pipeline:
+#   CONFIG=configs/comm_F3.yaml BASE='runs/comm_F2/stage3b_F/seed{seed}/checkpoint_01000.pt' OUT=runs/comm_F3 \
+#       bash scripts/run_comm_pipeline.sh
+# The rest is identical to comm_F.yaml.
+name: comm_F3
+seed: 0
+device: cuda
+total_games: 752640
+games_per_iter: 512
+checkpoint_every: 20
+workers: 4              # rollout worker processes per run; sized for 6 runs at once on 32 CPU threads
+out_dir: runs
+init_from: runs/comm_F2/stage3b_F/seed{seed}/checkpoint_01000.pt
+
+comm:
+  enabled: true
+  claim: true
+  alignment: true
+  rationale: true
+  team: true
+  intent: true
+  reply: true
+  promise: true
+  team_optional: true
+  merlin_may_accuse_good: true
+
+model:
+  hidden_sizes: [256, 256]
+  deduction: true       # deduction fields of the observation (README, Observation)
+
+ppo:
+  lr: 3.0e-4
+  epochs: 4
+  minibatch_size: 2048
+  clip_coef: 0.2
+  vf_coef: 0.5
+  ent_coef: 0.01
+  max_grad_norm: 0.5
+  gamma: 1.0            # finite game with a single terminal reward
+  gae_lambda: 0.95
+  norm_adv: true
+
+opponents:
+  p_self: 0.5           # both teams current policies
+  p_pool: 0.25          # one team replaced by a past snapshot
+  p_rule: 0.25          # one team replaced by the rule-based player
+  snapshot_every: 10
+  pool_size: 20
+  rule_fail_prob: 0.9
+  rule_merlin_knowledge_prob: 0.5   # rule Merlin acts on his knowledge only half the time
+
+eval:
+  every: 20
+  games: 512
