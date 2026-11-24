@@ -1,11 +1,12 @@
-"""Five-slot structured message protocol.
+"""Structured message protocol: five slots, and two more (reply, promise) in the extended configurations.
 
 Timing. Every quest opens with one round of public discussion before its first proposal: starting with
 the player to the leader's left and going round the table, each player speaks once and the leader speaks
 last; then the leader proposes and everyone votes. After a rejected proposal leadership passes on and the
 next leader proposes at once, without discussion. After the third successful quest the two evil players
 (Morgana, then the Assassin) each speak once to judge together who is Merlin; then the Assassin strikes.
-There is no dialogue: each player speaks once, in order, and cannot address or question anyone.
+There is no free dialogue: each player speaks once, in order, and cannot question anyone; with the reply slot
+open, a speaker can answer the players who spoke before it in the same round.
 
 A message has five slots. Every slot may say nothing, may be false and may be partial, and a message only
 concerns the current round (players may change their story in later rounds), but a single message cannot
@@ -20,10 +21,36 @@ private code. Heads, in the speaker's relative frame (r = 1..5 are the other pla
     rround[r]   quest 1..5 of the cited record                                          (3) rationale (derived)
     team        none, or a team of the current quest size (same index as proposals)      (4) team suggestion
     intent[r]   none, veto, require                                                     (5) action intent
+    reply[r]    none, endorse, dispute (only players who already spoke this round)       (6) reply
+    rbasis[r]   defense, judgment, team: why it disputes r                              (6) reply basis (derived)
+    promise[r]  none, fail-evil, success-good                                           (7) conditional promise
 
 Action intents announce how the speaker will vote in the current round:
     veto      "I will reject any team with player r in this round"
     require   "I will reject any team without player r in this round"
+
+Replies (slot 6) answer the earlier speakers of the same round:
+    endorse   "I agree with r": the two have judged nobody in opposite directions, r did not accuse the speaker,
+              and r suggested a team that holds nobody the speaker accuses and that the vote guard does not make
+              it reject. The speaker approves r's team if it is proposed in this round. The leader, who speaks
+              last, endorses by adopting r's team: it must hold the leader and be one of the cleanest teams by the
+              record open to it (the rule on suggestions), the leader endorses at most one team, and it proposes
+              that team.
+    dispute   "I disagree with r": only on a basis, derived like the rationale (the first that holds):
+                  defense    r accused the speaker;
+                  judgment   the two judged some player in opposite directions;
+                  team       r's team holds a player the speaker accuses.
+              The speaker rejects r's team if it is proposed in this round, and does not propose it.
+A speaker cannot endorse and dispute the same team, and its own suggestion is not a team it disputes.
+
+Conditional promises (slot 7) commit the speaker's judgment in the next round's discussion:
+    fail-evil      "if r goes on this round's quest and it fails, I will call r evil"
+    success-good   "if r goes on this round's quest and it succeeds, I will call r good"
+A promise whose condition is met forces that judgment in the speaker's next message (the quest record supports
+it). Promises are closed where no discussion can follow the outcome (the last quest; a fail or a success that
+would end the game), Merlin cannot promise to call a player he knows to be good evil (unless
+`merlin_may_accuse_good`), and a speaker makes at
+most two fail-evil and three success-good promises, so that the role deck can always hold the forced judgments.
 
 A player's words bind its own actions (`AvalonGame.word_binding`, a public rule for both teams, enforced by the
 action masks; `word_bounds`, `word_vote`):
@@ -36,6 +63,8 @@ action masks; `word_bounds`, `word_vote`):
                  its own says otherwise;
     proposal     a leader approves its own proposal, and proposes one of the cleanest teams by the record
                  that its words leave it (the rule on team suggestions below, applied to the deed);
+    reply        it approves the teams it endorsed and rejects and does not propose the teams it disputed in this
+                 round; a leader that endorsed a team proposes it (a dispute comes before a vouch);
     naming       the Assassin strikes the player it named as Merlin in the evil talk.
 Voters are free on the forced fifth proposal of a round, and the good players' vote guard (`AvalonGame.good_guard`)
 comes first. With the binding switched off, the same deeds against one's own words are counted in public instead
@@ -45,6 +74,10 @@ always counted:
     intent    backed a team that breaks an intent it announced in that round
     team      rejected exactly the team it suggested in that round
     vouch     its latest judgment of a member of a failed quest's team was good (counted per member)
+    reply     approved or proposed a team it disputed, rejected a team it endorsed, or as leader proposed another
+              team than the one it endorsed
+    promise   (free seats only: everybody else is held to it by the message masks) did not make a judgment it
+              had promised
 
 Consistency rules (enforced by masks, sampled in the order above):
 - claim and judgments respect the role deck: at most one Merlin, one Percival, one Morgana, one Assassin,
@@ -54,7 +87,10 @@ Consistency rules (enforced by masks, sampled in the order above):
 - no judgment without a basis: a player can be judged one way (good or evil) only if some record points that
   way. Before the first quest is resolved there is no record, so nobody can judge anybody: the first round is
   for claims, team suggestions and intents. The evil talk is exempt;
-- Merlin cannot call evil a player he knows to be good (he may keep silent about anyone);
+- Merlin cannot call evil a player he knows to be good (he may keep silent about anyone). This is the rule of F
+  and F2. With `merlin_may_accuse_good` (F3) it is gone: Merlin judges and promises under the rules of every
+  good player, so that what he says about a good player cannot rule him out as Merlin; how far he covers
+  himself is left to learning;
 - the rationale is the reasoning behind a judgment: it exists only for a judged player and points the same
   way. It is derived: role knowledge if the claim covers the judgment (see below), else the strongest record
   that points the judgment's way: a quest record before a vote record before a proposal record, and the most
@@ -65,7 +101,8 @@ Consistency rules (enforced by masks, sampled in the order above):
                        proposal leaves no vote record: good players had to approve it;
       proposal record  the player led quest q's team, which failed (evil) / succeeded (good);
       role knowledge   the claimed role's sight (unused while the Merlin claim and role names are closed);
-- everybody but the leader suggests a team (the leader's proposal follows its message). The team holds the
+- everybody but the leader suggests a team (the leader's proposal follows its message); with `team_optional`
+  (F3) a suggestion is a choice, and a player may also name no team. The team holds the
   speaker, nobody the speaker accuses, and is not a team the good players' vote guard would make the speaker
   reject. Among the teams this leaves, it must be one of the cleanest by the public record as a good player in
   the speaker's seat reads it (`good_view`: the public suspicion score, and what the quest results make certain
@@ -94,9 +131,10 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from ..env import actions as A
-from ..env.rules import EVIL_ROLES, MAX_PROPOSALS, N_PLAYERS, N_QUESTS, QUEST_SIZES, Phase, Role
+from ..env.rules import EVIL_ROLES, MAX_PROPOSALS, N_PLAYERS, N_QUESTS, QUEST_SIZES, WINS_NEEDED, Phase, Role
 
-SLOTS = ("claim", "alignment", "rationale", "team", "intent")
+SLOTS = ("claim", "alignment", "rationale", "team", "intent", "reply", "promise")
+LEGACY_SLOTS = 5  # slots of the networks before reply and promise (their `slot_open` features)
 
 
 @dataclass
@@ -107,6 +145,14 @@ class CommConfig:
     rationale: bool = True
     team: bool = True
     intent: bool = True  # (5) action intent
+    reply: bool = False  # (6) replies to the earlier speakers of the round (extended configurations)
+    promise: bool = False  # (7) conditional promises about the next round's judgments
+    # Whether a player may leave the team suggestion out. False (F, F2): everybody but the leader suggests a team
+    # whenever one is open to it. True: a suggestion is a choice in every round, like every other slot.
+    team_optional: bool = False
+    # Whether Merlin may call evil (and promise to call evil) a player he knows to be good. False (F, F2): he
+    # cannot, which lets the evil team rule out as Merlin whoever accuses a good player. True: no such rule.
+    merlin_may_accuse_good: bool = False
     silence: list[str] = field(default_factory=list)  # test time: slots forced to say nothing (F -> F-k, F -> S)
 
     def __post_init__(self) -> None:
@@ -115,6 +161,8 @@ class CommConfig:
             raise ValueError(f"unknown slots to silence: {sorted(unknown)}")
         if self.enabled and self.rationale and not self.alignment:
             raise ValueError("the rationale slot needs the judgment slot")
+        if self.enabled and self.promise and not self.alignment:
+            raise ValueError("the promise slot needs the judgment slot")
 
     def is_open(self, slot: str) -> bool:
         """Whether the slot exists in this configuration (what the policy was trained with)."""
@@ -139,6 +187,13 @@ R_NONE, R_QUEST, R_VOTE, R_PROPOSAL, R_ROLE = range(len(RATIONALE_TYPES))
 RECORD_TYPES = (R_QUEST, R_VOTE, R_PROPOSAL)
 INTENT_VALUES = ("none", "veto", "require")
 I_NONE, I_VETO, I_REQUIRE = range(len(INTENT_VALUES))
+REPLY_VALUES = ("none", "endorse", "dispute")
+Y_NONE, Y_ENDORSE, Y_DISPUTE = range(len(REPLY_VALUES))
+RBASIS_VALUES = ("none", "defense", "judgment", "team")
+B_NONE, B_DEFENSE, B_JUDGMENT, B_TEAM = range(len(RBASIS_VALUES))
+PROMISE_VALUES = ("none", "fail_evil", "success_good")
+K_NONE, K_FAIL_EVIL, K_SUCCESS_GOOD = range(len(PROMISE_VALUES))
+MAX_FAIL_EVIL_PROMISES, MAX_SUCCESS_GOOD_PROMISES = 2, 3
 
 H_CLAIM = 0
 H_JUDGE = 1  # judge[r] is head H_JUDGE + r - 1
@@ -146,7 +201,10 @@ H_RTYPE = H_JUDGE + N_OTHERS
 H_RROUND = H_RTYPE + N_OTHERS
 H_TEAM = H_RROUND + N_OTHERS
 H_INTENT = H_TEAM + 1
-N_MSG_HEADS = H_INTENT + N_OTHERS
+H_REPLY = H_INTENT + N_OTHERS  # heads from here on were added after F2 (checkpoints before them: `LEGACY`)
+H_RBASIS = H_REPLY + N_OTHERS
+H_PROMISE = H_RBASIS + N_OTHERS
+N_MSG_HEADS = H_PROMISE + N_OTHERS
 
 MSG_HEAD_SIZES = (
     (len(CLAIM_VALUES),)
@@ -155,13 +213,19 @@ MSG_HEAD_SIZES = (
     + (N_QUESTS,) * N_OTHERS
     + (1 + A.MAX_TEAMS,)
     + (len(INTENT_VALUES),) * N_OTHERS
+    + (len(REPLY_VALUES),) * N_OTHERS
+    + (len(RBASIS_VALUES),) * N_OTHERS
+    + (len(PROMISE_VALUES),) * N_OTHERS
 )
 MSG_HEAD_OFFSETS = tuple(int(x) for x in np.cumsum((0,) + MSG_HEAD_SIZES[:-1]))
 N_MSG_LOGITS = sum(MSG_HEAD_SIZES)
 # Sampling order. Stage A (claim, judgments) is what the later heads are conditioned on.
 STAGE_A = (H_CLAIM, *range(H_JUDGE, H_JUDGE + N_OTHERS))
-STAGE_B = (*range(H_RTYPE, H_RTYPE + N_OTHERS), *range(H_RROUND, H_RROUND + N_OTHERS), H_TEAM,
-           *range(H_INTENT, H_INTENT + N_OTHERS))
+STAGE_B = (*range(H_RTYPE, H_RTYPE + N_OTHERS), *range(H_RROUND, H_RROUND + N_OTHERS),
+           *range(H_REPLY, H_REPLY + N_OTHERS), *range(H_RBASIS, H_RBASIS + N_OTHERS), H_TEAM,
+           *range(H_INTENT, H_INTENT + N_OTHERS), *range(H_PROMISE, H_PROMISE + N_OTHERS))
+STANCE_HEADS = (H_CLAIM, *range(H_JUDGE, H_JUDGE + N_OTHERS), H_TEAM, *range(H_INTENT, H_INTENT + N_OTHERS),
+                *range(H_REPLY, H_REPLY + N_OTHERS), *range(H_PROMISE, H_PROMISE + N_OTHERS))  # chosen, not derived
 COND_DIM = len(CLAIM_VALUES) + N_OTHERS * len(JUDGE_VALUES)
 
 # TEAM_MEMBERS[k][v, s]: team-head value v (team v-1 of size k, 0 = none) contains relative seat s.
@@ -258,6 +322,40 @@ def evidence(game, speaker: int) -> np.ndarray:
     return ev
 
 
+def suggested_team(game, player: int, q: int | None = None) -> np.ndarray | None:
+    """(6,) bool over absolute seats: the team `player` suggested in the discussion of round q (default: the
+    current round), or None if it suggested none."""
+    q = game.quest if q is None else q
+    value = int(game.msg_log[q, player, H_TEAM])
+    if value <= 0:
+        return None
+    out = np.zeros(N_PLAYERS, dtype=bool)
+    out[(player + np.flatnonzero(TEAM_MEMBERS[QUEST_SIZES[q]][value])) % N_PLAYERS] = True
+    return out
+
+
+def _team_value(speaker: int, team: np.ndarray | None, size: int) -> int:
+    """Team-head value, in `speaker`'s frame, of an absolute team (0 for none)."""
+    if team is None:
+        return 0
+    return 1 + A.TEAM_INDEX[size][tuple(sorted((np.flatnonzero(team) - speaker) % N_PLAYERS))]
+
+
+def promised_judgments(game, speaker: int) -> np.ndarray:
+    """(N_OTHERS,) judgment per relative seat that `speaker`'s promises of the previous round force now (0: none):
+    the promise's condition is that the player went on that round's quest and the quest failed / succeeded."""
+    forced = np.zeros(N_OTHERS, dtype=np.int64)
+    q = game.quest - 1
+    if game.phase != Phase.DISCUSS or q < 0 or game.quest_result[q] < 0:
+        return forced
+    promises = game.msg_log[q, speaker, H_PROMISE:H_PROMISE + N_OTHERS]
+    on = game.quest_team[q][_others(speaker)]
+    failed = game.quest_result[q] == 1
+    forced[on & (promises == K_FAIL_EVIL) & failed] = J_EVIL
+    forced[on & (promises == K_SUCCESS_GOOD) & ~failed] = J_GOOD
+    return forced
+
+
 def message_context(game, speaker: int) -> dict[str, np.ndarray]:
     """Everything the masks need about the game, for one speaker (stack several with `stack_contexts`)."""
     cfg = game.comm
@@ -279,7 +377,7 @@ def message_context(game, speaker: int) -> dict[str, np.ndarray]:
                 claim_ok[1:] = False
                 claim_ok[game.msg_log[q, speaker, H_CLAIM]] = cfg.can_speak("claim")
         judge_ok[:, [J_GOOD, J_EVIL]] = cfg.can_speak("alignment")
-        if game.roles[speaker] == Role.MERLIN:  # Merlin does not accuse a player he knows to be good
+        if game.roles[speaker] == Role.MERLIN and not cfg.merlin_may_accuse_good:  # no accusing a known good player
             judge_ok[~game.private_knowledge(speaker)[0][_others(speaker)], J_EVIL] = False
         if cfg.can_speak("team") and speaker != game.leader:  # the teams open to it; `head_mask` keeps the cleanest
             team_cost = team_costs(game, speaker)
@@ -303,9 +401,41 @@ def message_context(game, speaker: int) -> dict[str, np.ndarray]:
             prev_dir[said] = JUDGE_DIR[judged[said]]
             fresh[said] = ev[said] & (np.arange(N_QUESTS) >= q)
             prev_accused = _accused_after(prev_accused, judged)
+    # Replies: who already spoke in this round, how each of them judged every seat (in the speaker's frame,
+    # index 0 the speaker itself) and the team it suggested.
+    reply = cfg.can_speak("reply") and not evil_talk
+    spoke = np.zeros(N_OTHERS, dtype=bool)
+    their_dir = np.full((N_OTHERS, N_PLAYERS), -1, dtype=np.int8)
+    their_team = np.zeros(N_OTHERS, dtype=np.int64)
+    guarded = np.zeros(1 + A.MAX_TEAMS, dtype=bool)
+    lead_cost = np.full(1 + A.MAX_TEAMS, np.inf)
+    if reply:
+        for seat in game.speakers[:game.speak_idx]:
+            r = (seat - speaker) % N_PLAYERS - 1
+            spoke[r] = True
+            judged = game.msg_log[game.quest, seat, H_JUDGE:H_JUDGE + N_OTHERS].astype(np.int64)
+            targets = (seat + np.arange(1, N_PLAYERS) - speaker) % N_PLAYERS
+            their_dir[r, targets[judged > J_NONE]] = JUDGE_DIR[judged[judged > J_NONE]]
+            their_team[r] = _team_value(speaker, suggested_team(game, seat), size)
+        n_teams = len(A.TEAMS_BY_SIZE[size])
+        guarded[1:1 + n_teams] = game.guarded_teams(speaker)
+        if speaker == game.leader:
+            lead_cost = team_costs(game, speaker)
+    # Promises: open where a discussion can follow this round's outcome.
+    promise_ok = np.zeros((N_OTHERS, len(PROMISE_VALUES)), dtype=bool)
+    if cfg.can_speak("promise") and not evil_talk and game.quest < N_QUESTS - 1:
+        promise_ok[:, K_FAIL_EVIL] = game.fails < WINS_NEEDED - 1
+        promise_ok[:, K_SUCCESS_GOOD] = game.successes < WINS_NEEDED - 1
+        if game.roles[speaker] == Role.MERLIN and not cfg.merlin_may_accuse_good:
+            promise_ok[~game.private_knowledge(speaker)[0][_others(speaker)], K_FAIL_EVIL] = False
+        promise_ok[:, K_NONE] = promise_ok[:, 1:].any()
+    forced = promised_judgments(game, speaker) if cfg.can_speak("alignment") else np.zeros(N_OTHERS, dtype=np.int64)
     return {
         "claim_ok": claim_ok, "judge_ok": judge_ok, "team_ok": team_ok, "team_members": TEAM_MEMBERS[size],
         "team_cost": team_cost,
+        "reply": np.array(reply), "spoke": spoke, "their_dir": their_dir, "their_team": their_team,
+        "guarded": guarded, "lead_cost": lead_cost, "is_leader": np.array(speaker == game.leader),
+        "promise_ok": promise_ok, "forced": forced, "team_optional": np.array(cfg.team_optional),
         "must_name": np.array(evil_talk and game.roles[speaker] == Role.ASSASSIN and cfg.can_speak("alignment")),
         "evidence": ev, "prev_dir": prev_dir, "prev_accused": prev_accused, "fresh": fresh, "basis": basis,
         "sight": np.array(not evil_talk),
@@ -352,8 +482,9 @@ def head_mask(h: int, msg: np.ndarray, ctx: dict[str, np.ndarray]) -> np.ndarray
         n_good = np.isin(prev, GOOD_JUDGMENTS).sum(axis=1) + (claim > C_NONE)
         n_evil = np.isin(prev, EVIL_JUDGMENTS).sum(axis=1)
         ok = ctx["judge_ok"][:, h - H_JUDGE].copy()
-        ok[:, list(GOOD_JUDGMENTS)] &= (n_good < 4)[:, None]
-        ok[:, list(EVIL_JUDGMENTS)] &= (n_evil < 2)[:, None]
+        later = ctx["forced"][:, h - H_JUDGE + 1:]  # judgments promised for later seats keep their room in the deck
+        ok[:, list(GOOD_JUDGMENTS)] &= (n_good + (later == J_GOOD).sum(axis=1) < 4)[:, None]
+        ok[:, list(EVIL_JUDGMENTS)] &= (n_evil + (later == J_EVIL).sum(axis=1) < 2)[:, None]
         ok[:, J_SERVANT] &= count(J_SERVANT) + (claim == C_SERVANT) < 2
         ok[:, J_MERLIN] &= count(J_MERLIN) + (claim == C_MERLIN) < 1
         ok[:, J_PERCIVAL] &= count(J_PERCIVAL) + (claim == C_PERCIVAL) < 1
@@ -376,6 +507,10 @@ def head_mask(h: int, msg: np.ndarray, ctx: dict[str, np.ndarray]) -> np.ndarray
         last_chance = unnamed & ok[:, J_MERLIN] & ~ctx["judge_ok"][:, r + 1:, J_MERLIN].any(axis=1)
         ok[last_chance] = False
         ok[last_chance, J_MERLIN] = True
+        promised = ctx["forced"][:, r]  # a promise whose condition is met leaves only the promised judgment
+        held = (promised > J_NONE) & ok[rows, promised]
+        ok[held] = False
+        ok[held, promised[held]] = True
         return ok
     if h < H_RROUND:  # rationale type: only for a judged player, pointing the judgment's way
         r = h - H_RTYPE
@@ -410,13 +545,18 @@ def head_mask(h: int, msg: np.ndarray, ctx: dict[str, np.ndarray]) -> np.ndarray
         ok[rows, latest] = cited.any(axis=1)
         return ok
     accused = _accused_after(ctx["prev_accused"], msg[:, H_JUDGE:H_JUDGE + N_OTHERS])  # relative seats 1..5
+    endorsed, disputed = _reply_teams(msg, ctx)
     if h == H_TEAM:  # one of the cleanest teams open to the speaker; nothing only if none is open
-        open_ = ctx["team_ok"] & ~(ctx["team_members"][:, :, 1:] & accused[:, None, :]).any(axis=-1)
+        open_ = ctx["team_ok"] & ~(ctx["team_members"][:, :, 1:] & accused[:, None, :]).any(axis=-1) & ~disputed
         open_[:, 0] = False
         cost = np.where(open_, ctx["team_cost"], np.inf)
         ok = open_ & (cost <= cost.min(axis=1, keepdims=True) + TEAM_MARGIN)
-        ok[:, 0] = ~ok.any(axis=1)
+        ok[:, 0] = ~ok.any(axis=1) | ctx["team_optional"]
         return ok
+    if h >= H_PROMISE:
+        return _promise_mask(h - H_PROMISE, msg, ctx)
+    if h >= H_REPLY:
+        return _reply_mask(h, msg, ctx, accused)
     r = h - H_INTENT  # intent about relative seat r + 1
     judge = msg[:, H_JUDGE + r]
     team = msg[:, H_TEAM]
@@ -430,10 +570,81 @@ def head_mask(h: int, msg: np.ndarray, ctx: dict[str, np.ndarray]) -> np.ndarray
         intents = chosen.copy()
         intents[:, r] = v
         bound = np.where(accused & (intents == I_NONE), I_VETO, intents)  # an accusation is a veto
-        feasible = (_satisfies(candidates, bound) & real).any(axis=1)
-        ok[:, v] = ctx["intent"] & feasible & ((team <= 0) | _satisfies(own, intents)[:, 0])
+        feasible = (_satisfies(candidates, bound) & real & ~disputed[:, 1:]).any(axis=1)
+        backs_endorsed = ~(endorsed[:, 1:] & ~_satisfies(candidates, intents)).any(axis=1)  # it approves those
+        ok[:, v] = ctx["intent"] & feasible & ((team <= 0) | _satisfies(own, intents)[:, 0]) & backs_endorsed
     ok[:, I_VETO] &= ~np.isin(judge, GOOD_JUDGMENTS)
     ok[:, I_REQUIRE] &= ~accused[:, r]
+    return ok
+
+
+def _reply_teams(msg: np.ndarray, ctx: dict[str, np.ndarray], upto: int = N_OTHERS) -> tuple[np.ndarray, np.ndarray]:
+    """(endorsed, disputed): (batch, 1 + MAX_TEAMS) team-head values of the teams that the replies to relative
+    seats 1..upto in `msg` endorse / dispute (value 0, no team, is never set)."""
+    n = len(msg)
+    endorsed = np.zeros((n, 1 + A.MAX_TEAMS), dtype=bool)
+    disputed = np.zeros_like(endorsed)
+    replies = msg[:, H_REPLY:H_REPLY + upto]
+    rows = np.repeat(np.arange(n), upto).reshape(n, upto)
+    their = ctx["their_team"][:, :upto]
+    endorsed[rows[replies == Y_ENDORSE], their[replies == Y_ENDORSE]] = True
+    disputed[rows[replies == Y_DISPUTE], their[replies == Y_DISPUTE]] = True
+    endorsed[:, 0] = disputed[:, 0] = False
+    return endorsed, disputed
+
+
+def _reply_facts(r: int, msg: np.ndarray, ctx: dict[str, np.ndarray], accused: np.ndarray):
+    """What the speaker's stance (claim and judgments in `msg`) has to do with the earlier speaker r + 1:
+    (judged somebody in opposite directions, r accused the speaker, r's team holds somebody the speaker
+    accuses, r's team-head value)."""
+    judged = msg[:, H_JUDGE:H_JUDGE + N_OTHERS]
+    own = np.where(judged > J_NONE, JUDGE_DIR[judged.clip(0)], -1)
+    theirs = ctx["their_dir"][:, r, 1:]
+    clash = ((own >= 0) & (theirs >= 0) & (own != theirs)).any(axis=1)
+    accused_me = ctx["their_dir"][:, r, 0] == 1
+    value = ctx["their_team"][:, r]
+    team = ctx["team_members"][np.arange(len(msg)), value]
+    return clash, accused_me, (team[:, 1:] & accused).any(axis=1), value
+
+
+def _reply_mask(h: int, msg: np.ndarray, ctx: dict[str, np.ndarray], accused: np.ndarray) -> np.ndarray:
+    """Legal values of a reply head (H_REPLY + r) or of its derived basis (H_RBASIS + r)."""
+    n = len(msg)
+    rows = np.arange(n)
+    r = (h - H_REPLY) % N_OTHERS
+    clash, accused_me, team_accused, value = _reply_facts(r, msg, ctx, accused)
+    if h >= H_RBASIS:  # derived: the first basis that holds, for a dispute
+        basis = np.where(accused_me, B_DEFENSE, np.where(clash, B_JUDGMENT, np.where(team_accused, B_TEAM, B_NONE)))
+        ok = np.zeros((n, len(RBASIS_VALUES)), dtype=bool)
+        ok[rows, basis] = (msg[:, H_REPLY + r] == Y_DISPUTE) & (basis > B_NONE)
+        return ok
+    heard = ctx["reply"] & ctx["spoke"][:, r]
+    endorsed, disputed = _reply_teams(msg, ctx, upto=r)  # the replies before this one
+    ok = np.zeros((n, len(REPLY_VALUES)), dtype=bool)
+    ok[:, Y_NONE] = heard
+    endorse = heard & (value > 0) & ~clash & ~accused_me & ~team_accused & ~ctx["guarded"][rows, value]
+    endorse &= ~disputed[rows, value]
+    # The leader endorses by adopting the team: one that holds it and is among the cleanest open to it.
+    open_ = np.isfinite(ctx["lead_cost"]) & ~(ctx["team_members"][:, :, 1:] & accused[:, None, :]).any(axis=-1)
+    open_[:, 0] = False
+    cost = np.where(open_, ctx["lead_cost"], np.inf)
+    clean = open_ & (cost <= cost.min(axis=1, keepdims=True) + TEAM_MARGIN)
+    adopts = clean[rows, value] & (~endorsed.any(axis=1) | endorsed[rows, value])
+    ok[:, Y_ENDORSE] = endorse & (~ctx["is_leader"] | adopts)
+    # A disputed team cannot be proposed, so a dispute must leave some team that holds nobody accused.
+    teams = ctx["team_members"][:, 1:]
+    left = teams.any(axis=-1) & ~(teams[:, :, 1:] & accused[:, None, :]).any(axis=-1) & ~disputed[:, 1:]
+    left &= np.arange(1, 1 + A.MAX_TEAMS)[None, :] != value[:, None]
+    ok[:, Y_DISPUTE] = heard & (accused_me | clash | team_accused) & ~endorsed[rows, value] & left.any(axis=1)
+    return ok
+
+
+def _promise_mask(r: int, msg: np.ndarray, ctx: dict[str, np.ndarray]) -> np.ndarray:
+    """Legal values of the promise about relative seat r + 1, within the per-message limits."""
+    ok = ctx["promise_ok"][:, r].copy()
+    chosen = msg[:, H_PROMISE:H_PROMISE + r]  # the promises before this one
+    ok[:, K_FAIL_EVIL] &= (chosen == K_FAIL_EVIL).sum(axis=1) < MAX_FAIL_EVIL_PROMISES
+    ok[:, K_SUCCESS_GOOD] &= (chosen == K_SUCCESS_GOOD).sum(axis=1) < MAX_SUCCESS_GOOD_PROMISES
     return ok
 
 
@@ -467,12 +678,35 @@ def word_bounds(game, player: int) -> tuple[np.ndarray, np.ndarray]:
     return banned, required
 
 
+def reply_teams(game, player: int) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """(endorsed, disputed): the absolute teams `player`'s replies of this round endorse / dispute."""
+    endorsed, disputed = [], []
+    replies = game.msg_log[game.quest, player, H_REPLY:H_REPLY + N_OTHERS]
+    for r, seat in enumerate(_others(player)):
+        team = suggested_team(game, int(seat)) if replies[r] > Y_NONE else None
+        if team is not None:
+            (endorsed if replies[r] == Y_ENDORSE else disputed).append(team)
+    return endorsed, disputed
+
+
+def _holds(teams: list[np.ndarray], team: np.ndarray) -> bool:
+    return any((t == team).all() for t in teams)
+
+
 def word_teams(game, player: int) -> np.ndarray:
     """(number of teams of the current size,) bool: the teams `player` may propose by its own words."""
     banned, required = word_bounds(game, player)
     frame = (player + np.arange(N_PLAYERS)) % N_PLAYERS
     members = TEAM_MEMBERS[game.team_size][1:1 + len(A.TEAMS_BY_SIZE[game.team_size])]
-    return ~(members & banned[frame]).any(axis=1) & ~(~members & required[frame]).any(axis=1)
+    ok = ~(members & banned[frame]).any(axis=1) & ~(~members & required[frame]).any(axis=1)
+    endorsed, disputed = reply_teams(game, player)
+    absolute = np.zeros_like(members)
+    absolute[:, frame] = members
+    for team in disputed:
+        ok &= ~(absolute == team).all(axis=1)
+    if endorsed and player == game.leader and game.attempt == 0:  # the round's leader adopted a team
+        ok &= np.any([(absolute == team).all(axis=1) for team in endorsed], axis=0)
+    return ok
 
 
 def clean_teams(game, player: int) -> np.ndarray:
@@ -496,9 +730,10 @@ def word_vote(game, player: int) -> bool | None:
     if game.attempt == MAX_PROPOSALS - 1:
         return None  # the forced fifth proposal tests nobody's word
     banned, required = word_bounds(game, player)
-    if (game.team & banned).any() or (required & ~game.team).any():
+    endorsed, disputed = reply_teams(game, player)
+    if (game.team & banned).any() or (required & ~game.team).any() or _holds(disputed, game.team):
         return False
-    if is_own_suggestion(game, player):
+    if is_own_suggestion(game, player) or _holds(endorsed, game.team):
         return True
     judged = game.msg_log[game.quest, player, H_JUDGE:H_JUDGE + N_OTHERS]
     vouched = np.zeros(N_PLAYERS, dtype=bool)
@@ -511,8 +746,9 @@ def word_vote(game, player: int) -> bool | None:
 # ---------------------------------------------------------------------- word against deed (public audit)
 # With the binding switched off, what a player does against its own words is counted in public
 # (`AvalonGame.audit`, shown to every player by `encode_comm`), so that others can hold it to account.
-AUDIT = ("judge", "intent", "team", "vouch")
-A_JUDGE, A_INTENT, A_TEAM, A_VOUCH = range(len(AUDIT))
+AUDIT = ("judge", "intent", "team", "vouch", "reply", "promise")
+A_JUDGE, A_INTENT, A_TEAM, A_VOUCH, A_REPLY, A_PROMISE = range(len(AUDIT))
+LEGACY_AUDIT = 4  # audit columns of the networks before the reply and promise slots
 AUDIT_LEVELS = 3  # each count is shown as "at least 1, 2, 3"
 
 
@@ -524,6 +760,16 @@ def backs_against_word(game, player: int) -> tuple[bool, bool]:
     intents = msg[H_INTENT:H_INTENT + N_OTHERS]
     judged_evil = np.isin(msg[H_JUDGE:H_JUDGE + N_OTHERS], EVIL_JUDGMENTS)
     return bool((judged_evil & on_team).any()), bool((((intents == I_VETO) & on_team) | ((intents == I_REQUIRE) & ~on_team)).any())
+
+
+def against_reply(game, player: int, backs: bool) -> bool:
+    """Whether backing (`backs`: proposing or approving) or rejecting the team under vote goes against the
+    player's replies of this round; for the round's leader, proposing another team than the one it endorsed too."""
+    endorsed, disputed = reply_teams(game, player)
+    if not backs:
+        return _holds(endorsed, game.team)
+    adopted = player == game.leader and game.attempt == 0 and game.phase == Phase.PROPOSE and endorsed
+    return _holds(disputed, game.team) or bool(adopted and not _holds(endorsed, game.team))
 
 
 def is_own_suggestion(game, player: int) -> bool:
@@ -552,6 +798,8 @@ def sample_messages(ctx: dict[str, np.ndarray], rng: np.random.Generator, first:
     msg = np.full((n, N_MSG_HEADS), -1, dtype=np.int64)
     for h in STAGE_A + STAGE_B:
         ok = head_mask(h, msg, ctx)
+        if h >= H_REPLY and not ok.any():  # a newer slot closed for every speaker: no draw (earlier play repeats)
+            continue
         score = np.where(ok, 1.0 if first else rng.random(ok.shape), -1.0)
         msg[:, h] = np.where(ok.any(axis=1), score.argmax(axis=1), -1)
     return msg.astype(np.int8)
@@ -560,6 +808,8 @@ def sample_messages(ctx: dict[str, np.ndarray], rng: np.random.Generator, first:
 def forced_message(ctx: dict[str, np.ndarray]) -> np.ndarray | None:
     """The only legal message of one speaker when no slot can say anything (all closed or silenced)."""
     if ctx["claim_ok"][1:].any() or ctx["judge_ok"][:, 1:].any() or ctx["team_ok"][1:].any() or ctx["intent"]:
+        return None
+    if (ctx["reply"] and ctx["spoke"].any()) or ctx["promise_ok"].any():
         return None
     msg = np.full(N_MSG_HEADS, -1, dtype=np.int8)
     msg[[H_CLAIM, *range(H_JUDGE, H_JUDGE + N_OTHERS), H_TEAM, *range(H_INTENT, H_INTENT + N_OTHERS)]] = 0
@@ -589,28 +839,40 @@ def check_message(game, speaker: int, msg: np.ndarray, free: bool = False) -> No
     if msg.shape != (N_MSG_HEADS,):
         raise ValueError(f"a message must have shape ({N_MSG_HEADS},), got {msg.shape}")
     rebuilt = free_message(game, speaker, msg[H_CLAIM], msg[H_JUDGE:H_JUDGE + N_OTHERS], msg[H_TEAM],
-                           msg[H_INTENT:H_INTENT + N_OTHERS])
+                           msg[H_INTENT:H_INTENT + N_OTHERS], msg[H_REPLY:H_REPLY + N_OTHERS].clip(0),
+                           msg[H_PROMISE:H_PROMISE + N_OTHERS].clip(0))
     if not np.array_equal(rebuilt, msg):
-        raise ValueError("the rationale heads of a free message must be the derived ones")
+        raise ValueError("the derived heads (rationale, reply basis) of a free message must be the derived ones")
 
 
-def free_message(game, speaker: int, claim: int = 0, judgments=(), team: int = 0, intents=()) -> np.ndarray:
+def free_message(game, speaker: int, claim: int = 0, judgments=(), team: int = 0, intents=(), replies=(),
+                 promises=()) -> np.ndarray:
     """The message of a seat the rules do not bind (`AvalonGame.free_seats`), from any stance the heads can hold:
-    `judgments` and `intents` are per relative seat 1, 2, ... (none for the seats left out). Only the rationale is
-    still derived, from the stance and the record: a judgment the record does not support has none."""
+    `judgments`, `intents`, `replies` and `promises` are per relative seat 1, 2, ... (none for the seats left
+    out). A reply can only answer a player who already spoke in this round, and replies and promises only where
+    their slots are open. The rationale and the reply basis are still derived, from the stance and the record: a
+    judgment the record does not support has no rationale, a dispute without a basis has none."""
     ctx = stack_contexts([message_context(game, speaker)])
     msg = np.full((1, N_MSG_HEADS), -1, dtype=np.int64)
     msg[0, [H_CLAIM, H_TEAM]] = claim, team
-    for h0, values in ((H_JUDGE, judgments), (H_INTENT, intents)):
+    for h0, values in ((H_JUDGE, judgments), (H_INTENT, intents), (H_REPLY, replies), (H_PROMISE, promises)):
         msg[0, h0:h0 + N_OTHERS] = 0
         msg[0, h0:h0 + len(values)] = values
-    stance = [H_CLAIM, *range(H_JUDGE, H_JUDGE + N_OTHERS), H_TEAM, *range(H_INTENT, H_INTENT + N_OTHERS)]
+    stance = list(STANCE_HEADS)
     sizes = np.array(MSG_HEAD_SIZES)[stance]
-    talk_only = game.phase == Phase.EVIL_DISCUSS and (msg[0, [H_CLAIM, H_TEAM]].any() or msg[0, H_INTENT:].any())
+    talk_only = game.phase == Phase.EVIL_DISCUSS and (msg[0, [H_CLAIM, H_TEAM]].any()
+                                                      or (msg[0, H_INTENT:H_INTENT + N_OTHERS] > 0).any())
+    answerable = ctx["reply"][0] & ctx["spoke"][0]
+    promising = ctx["promise_ok"][0, :, K_NONE]
     if (msg[0, stance] < 0).any() or (msg[0, stance] >= sizes).any() or talk_only or (
             team > 0 and not ctx["team_members"][0, team].any()):
         raise ValueError("a free message holds a value its heads do not have")
-    for h in range(H_RTYPE, H_TEAM):
+    if ((msg[0, H_REPLY:H_REPLY + N_OTHERS] > 0) & ~answerable).any() or (
+            (msg[0, H_PROMISE:H_PROMISE + N_OTHERS] > 0) & ~promising).any():
+        raise ValueError("a free message replies to a player who has not spoken, or uses a closed slot")
+    msg[0, H_REPLY:H_REPLY + N_OTHERS][~answerable] = -1  # nobody to answer: no head
+    msg[0, H_PROMISE:H_PROMISE + N_OTHERS][~promising] = -1
+    for h in (*range(H_RTYPE, H_TEAM), *range(H_RBASIS, H_RBASIS + N_OTHERS)):
         ok = head_mask(h, msg, ctx)[0]
         msg[0, h] = np.flatnonzero(ok)[0] if ok.any() else -1
     return msg[0].astype(np.int8)
@@ -627,6 +889,11 @@ _MSG_FIELDS = [
     ("team_flag", 1),
     ("team", N_PLAYERS),
     ("intent", N_PLAYERS * (len(INTENT_VALUES) - 1)),
+    # Fields after this point were added with the reply and promise slots (appended, so that the features of the
+    # networks before them are a prefix: `LEGACY`).
+    ("reply", N_PLAYERS * (len(REPLY_VALUES) - 1)),
+    ("rbasis", N_PLAYERS * (len(RBASIS_VALUES) - 1)),
+    ("promise", N_PLAYERS * (len(PROMISE_VALUES) - 1)),
 ]
 MSG_LAYOUT: dict[str, slice] = {}
 _o = 0
@@ -635,14 +902,18 @@ for _name, _size in _MSG_FIELDS:
     _o += _size
 MSG_FEAT_DIM = _o
 _SEAT_FIELDS = {"judge": len(JUDGE_VALUES) - 1, "rtype": len(RATIONALE_TYPES) - 1, "rround": N_QUESTS, "team": 1,
-                "intent": len(INTENT_VALUES) - 1}
+                "intent": len(INTENT_VALUES) - 1, "reply": len(REPLY_VALUES) - 1, "rbasis": len(RBASIS_VALUES) - 1,
+                "promise": len(PROMISE_VALUES) - 1}
 N_MSG_SLOTS = N_QUESTS * N_PLAYERS + N_PLAYERS  # one discussion per quest x speaker, then the evil talk by speaker
 
 _COMM_FIELDS = [
-    ("slot_open", len(SLOTS)),
+    ("slot_open", LEGACY_SLOTS),
     ("discussion", 2),  # in DISCUSS, in EVIL_DISCUSS
     ("spoken", N_PLAYERS),  # who has already spoken in the current discussion
-    ("audit", N_PLAYERS * len(AUDIT) * AUDIT_LEVELS),  # per player: word-against-deed counts, as thresholds
+    ("audit", N_PLAYERS * LEGACY_AUDIT * AUDIT_LEVELS),  # per player: word-against-deed counts, as thresholds
+    # Added with the reply and promise slots (appended: the global features of earlier networks are a prefix).
+    ("slot_open_x", len(SLOTS) - LEGACY_SLOTS),
+    ("audit_x", N_PLAYERS * (len(AUDIT) - LEGACY_AUDIT) * AUDIT_LEVELS),
 ]
 COMM_LAYOUT: dict[str, slice] = {}
 _o = 0
@@ -652,6 +923,14 @@ for _name, _size in _COMM_FIELDS:
 COMM_GLOBAL_DIM = _o
 COMM_LAYOUT["messages"] = slice(COMM_GLOBAL_DIM, COMM_GLOBAL_DIM + N_MSG_SLOTS * MSG_FEAT_DIM)
 COMM_DIM = COMM_LAYOUT["messages"].stop
+
+# Sizes of the networks trained before the reply and promise slots (F, F2): their message features, global
+# communication features and message logits are prefixes of today's (`policy.upgrade_legacy_state`).
+LEGACY = {
+    "msg_feat_dim": MSG_LAYOUT["intent"].stop,
+    "comm_global_dim": COMM_LAYOUT["audit"].stop,
+    "n_msg_logits": sum(MSG_HEAD_SIZES[:H_REPLY]),
+}
 
 
 def _feature_perm(observer: int) -> np.ndarray:
@@ -684,8 +963,9 @@ def message_features(speaker: int, msg: np.ndarray, team_size: int) -> np.ndarra
             f[MSG_LAYOUT["rtype"].start + _SEAT_FIELDS["rtype"] * seat + msg[H_RTYPE + r] - 1] = 1
         if msg[H_RROUND + r] >= 0:
             f[MSG_LAYOUT["rround"].start + N_QUESTS * seat + msg[H_RROUND + r]] = 1
-        if msg[H_INTENT + r] > 0:
-            f[MSG_LAYOUT["intent"].start + _SEAT_FIELDS["intent"] * seat + msg[H_INTENT + r] - 1] = 1
+        for name, h in (("intent", H_INTENT), ("reply", H_REPLY), ("rbasis", H_RBASIS), ("promise", H_PROMISE)):
+            if msg[h + r] > 0:
+                f[MSG_LAYOUT[name].start + _SEAT_FIELDS[name] * seat + msg[h + r] - 1] = 1
     if msg[H_TEAM] > 0:
         f[MSG_LAYOUT["team_flag"]] = 1
         f[MSG_LAYOUT["team"].start + np.array(A.decode_team(speaker, msg[H_TEAM] - 1, team_size))] = 1
@@ -696,7 +976,9 @@ def encode_comm(game, player: int) -> np.ndarray:
     """Communication part of the observation (int8, length COMM_DIM), in the player's relative frame."""
     out = np.zeros(COMM_DIM, dtype=np.int8)
     cfg = game.comm
-    out[COMM_LAYOUT["slot_open"]] = [cfg.is_open(s) for s in SLOTS]
+    is_open = [cfg.is_open(s) for s in SLOTS]
+    out[COMM_LAYOUT["slot_open"]] = is_open[:LEGACY_SLOTS]
+    out[COMM_LAYOUT["slot_open_x"]] = is_open[LEGACY_SLOTS:]
     if not cfg.enabled:
         return out
     perm = (player + np.arange(N_PLAYERS)) % N_PLAYERS
@@ -705,7 +987,8 @@ def encode_comm(game, player: int) -> np.ndarray:
         for seat in game.speakers[:game.speak_idx]:
             out[COMM_LAYOUT["spoken"].start + (seat - player) % N_PLAYERS] = 1
     levels = game.audit[perm][:, :, None] >= np.arange(1, AUDIT_LEVELS + 1)
-    out[COMM_LAYOUT["audit"]] = levels.reshape(-1)
+    out[COMM_LAYOUT["audit"]] = levels[:, :LEGACY_AUDIT].reshape(-1)
+    out[COMM_LAYOUT["audit_x"]] = levels[:, LEGACY_AUDIT:].reshape(-1)
     slots = np.concatenate([game.msg_feat[:, perm].reshape(-1, MSG_FEAT_DIM), game.evil_feat[perm]])
     out[COMM_LAYOUT["messages"]] = slots[:, _FEATURE_PERM[player]].reshape(-1)
     return out
@@ -733,4 +1016,16 @@ def decode_message(msg: np.ndarray, speaker: int, team_size: int) -> dict:
                for r, seat in enumerate(_others(speaker)) if msg[H_INTENT + r] > 0}
     if intents:
         out["intents"] = intents
+    replies = {}
+    for r, seat in enumerate(_others(speaker)):
+        if msg[H_REPLY + r] > 0:
+            replies[int(seat)] = {"reply": REPLY_VALUES[msg[H_REPLY + r]]}
+            if msg[H_RBASIS + r] > 0:
+                replies[int(seat)]["basis"] = RBASIS_VALUES[msg[H_RBASIS + r]]
+    if replies:
+        out["replies"] = replies
+    promises = {int(seat): PROMISE_VALUES[msg[H_PROMISE + r]]
+                for r, seat in enumerate(_others(speaker)) if msg[H_PROMISE + r] > 0}
+    if promises:
+        out["promises"] = promises
     return out

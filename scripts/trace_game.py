@@ -134,6 +134,7 @@ ROLE = {"MERLIN": "梅林", "MORGANA": "莫甘娜", "SERVANT": "忠臣", "PERCIV
 CLAIM = {"servant": "忠臣", "percival": "派西维尔", "merlin": "梅林"}
 JUDGE = {"good": "好人", "evil": "坏人", "servant": "忠臣", "merlin": "梅林", "percival": "派西维尔"}
 BASIS = {"quest": "任务", "vote": "投票", "proposal": "组队"}
+DISPUTE = {"defense": "他指认了我", "judgment": "我们对同一个人的判断相反", "team": "他推荐的队里有我指认的人", None: "无依据"}
 RESULT = {"ASSASSIN_MISSED": "三次任务成功，刺客没有刺中梅林", "ASSASSIN_HIT": "三次任务成功，但刺客刺中了梅林",
           "THREE_FAILS": "三次任务失败", "FIVE_REJECTIONS": "连续五次否决"}
 
@@ -180,6 +181,14 @@ def says(m: dict, roles: list[str], evil: list[bool]) -> str:
         parts.append(f"推荐 [{names(m['team'])}]")
     for seat, intent in m.get("intents", {}).items():
         parts.append(f"“{'没有' if intent == 'require' else '有'}{name(int(seat))}的队我不赞成”")
+    for seat, e in m.get("replies", {}).items():
+        if e["reply"] == "endorse":
+            parts.append(f"“我同意{name(int(seat))}，他推荐的队我赞成”")
+        else:
+            parts.append(f"“我不同意{name(int(seat))}（{DISPUTE[e.get('basis')]}），他推荐的队我不赞成”")
+    for seat, kind in m.get("promises", {}).items():
+        outcome, call = ("失败", "坏人") if kind == "fail_evil" else ("成功", "好人")
+        parts.append(f"“{name(int(seat))}若上这轮任务且任务{outcome}，下一轮我说他是{call}”")
     return "；".join(parts) if parts else "不发言"
 
 

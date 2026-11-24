@@ -1,0 +1,80 @@
+{
+ "checkpoint": "runs/comm_F3b/stage3b_F/seed2/checkpoint_01000.pt",
+ "games": 2000,
+ "good_win": 0.3045,
+ "rates": {
+  "MERLIN": {
+   "team": 0.238,
+   "team_r1": 0.0,
+   "team_r2+": 0.307,
+   "endorse": 0.099,
+   "dispute": 0.034,
+   "promise": 0.124,
+   "any_reply": 0.326,
+   "any_promise": 0.372
+  },
+  "PERCIVAL": {
+   "team": 0.227,
+   "team_r1": 0.0,
+   "team_r2+": 0.296,
+   "endorse": 0.148,
+   "dispute": 0.03,
+   "promise": 0.121,
+   "any_reply": 0.432,
+   "any_promise": 0.363
+  },
+  "SERVANT": {
+   "team": 0.227,
+   "team_r1": 0.0,
+   "team_r2+": 0.293,
+   "endorse": 0.173,
+   "dispute": 0.026,
+   "promise": 0.122,
+   "any_reply": 0.481,
+   "any_promise": 0.365
+  },
+  "MORGANA": {
+   "team": 0.401,
+   "team_r1": 0.002,
+   "team_r2+": 0.52,
+   "endorse": 0.103,
+   "dispute": 0.039,
+   "promise": 0.105,
+   "any_reply": 0.348,
+   "any_promise": 0.349
+  },
+  "ASSASSIN": {
+   "team": 0.409,
+   "team_r1": 0.003,
+   "team_r2+": 0.532,
+   "endorse": 0.104,
+   "dispute": 0.043,
+   "promise": 0.102,
+   "any_reply": 0.36,
+   "any_promise": 0.349
+  }
+ },
+ "probe_evil_from_slot_use": {
+  "info_gain_nats": 0.0238,
+  "accuracy": 0.67,
+  "messages": 52488
+ },
+ "probe_merlin_vs_servant_from_slot_use": {
+  "info_gain_nats": 0.0143,
+  "accuracy": 0.667,
+  "messages": 26244
+ },
+ "probe_merlin_vs_servant_rounds_2plus": {
+  "info_gain_nats": 0.0188,
+  "accuracy": 0.667,
+  "messages": 20244
+ },
+ "audit_total": [
+  0,
+  0,
+  0,
+  9808,
+  0,
+  0
+ ]
+}

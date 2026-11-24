@@ -1,7 +1,7 @@
-"""Message statistics (RQ4) from saved self-play game records, per file and pooled.
+"""Message statistics from saved self-play game records, per file and pooled.
 
-    python scripts/evaluate.py --checkpoint runs/comm_M/seed0/latest.pt --save-games runs/comm_M/seed0/games.jsonl
-    python scripts/analyze_messages.py runs/comm_M/seed*/games.jsonl --out results/tables/comm_M_messages.json
+    python scripts/evaluate.py --checkpoint runs/comm_F3/stage3b_F/seed0/latest.pt --save-games games_seed0.jsonl
+    python scripts/analyze_messages.py games_seed*.jsonl --out results/tables/comm_F3/messages.json
 
 Reports slot use by team and role, the precision of accusations and endorsements against guessing, the
 share and precision of each rationale basis, whether leaders include accused players and voters approve

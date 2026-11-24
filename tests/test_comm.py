@@ -21,6 +21,8 @@ PILOT = Path(__file__).resolve().parents[1] / "configs" / "pilot_silent.yaml"
 F = P.CommConfig(enabled=True)
 M = P.CommConfig(enabled=True, claim=False, team=False, intent=False)
 T = P.CommConfig(enabled=True, team=False)  # no teams named: scripts in which the leaders propose freely
+FX = P.CommConfig(enabled=True, reply=True, promise=True)  # F3: F with replies and promises
+OPT = P.CommConfig(enabled=True, reply=True, promise=True, team_optional=True)  # F3 as trained
 
 
 def head_index(name: str) -> int:
@@ -133,6 +135,18 @@ def test_merlin_cannot_accuse_a_player_he_knows_to_be_good():
     merlin = P.message_context(game, 0)["judge_ok"]  # about seats 1-5; seats 4 and 5 are evil
     assert merlin[:, P.J_EVIL].tolist() == [False, False, False, True, True] and merlin[:, P.J_GOOD].all()
     assert P.message_context(game, 2)["judge_ok"][:, P.J_EVIL].all()  # a Servant can be wrong about anybody
+
+
+def test_merlin_may_accuse_a_good_player_where_configured():
+    bluff = P.CommConfig(enabled=True, team=False, merlin_may_accuse_good=True)
+    game = make_game(leader=0, comm=bluff)
+    play_quest(game, [0, 1])
+    play_quest(game, [0, 1, 4], failers=[4])  # a record against everybody
+    assert P.message_context(game, 0)["judge_ok"][:, P.J_EVIL].all()  # Merlin judges like a Servant
+    for flag in (False, True):  # ... and promises like one: in round 1 about anybody, also seats he knows are good
+        cfg = P.CommConfig(enabled=True, reply=True, promise=True, team_optional=True, merlin_may_accuse_good=flag)
+        ok = P.message_context(make_game(leader=1, comm=cfg), 0)["promise_ok"][:, P.K_FAIL_EVIL]
+        assert ok.tolist() == ([True] * 5 if flag else [False, False, False, True, True])
 
 
 def test_a_forced_fifth_proposal_leaves_no_vote_record():
@@ -262,8 +276,10 @@ def speak_as(game, seat: int, **heads) -> None:
 
 def audit_seen_by(game, observer: int) -> np.ndarray:
     """(relative seat, audit kind): the public count as the observation shows it (capped at AUDIT_LEVELS)."""
-    block = P.encode_comm(game, observer)[P.COMM_LAYOUT["audit"]]
-    return block.reshape(6, len(P.AUDIT), P.AUDIT_LEVELS).sum(axis=-1)
+    comm = P.encode_comm(game, observer)
+    old = comm[P.COMM_LAYOUT["audit"]].reshape(6, P.LEGACY_AUDIT, P.AUDIT_LEVELS)
+    new = comm[P.COMM_LAYOUT["audit_x"]].reshape(6, len(P.AUDIT) - P.LEGACY_AUDIT, P.AUDIT_LEVELS)
+    return np.concatenate([old, new], axis=1).sum(axis=-1)
 
 
 def bound_vote(game, player: int) -> str:
@@ -358,7 +374,7 @@ def test_a_free_seat_is_not_bound_and_its_deeds_against_its_words_are_counted():
     assert bound_vote(game, 2) == "reject"  # the same words would bind any other seat
     game.free_seats = frozenset({2})
     vote(game, [0, 2])  # it approves a team with the player it accused
-    assert game.audit[2].tolist() == [1, 0, 0, 0] and game.audit.sum() == 1
+    assert game.audit[2].tolist() == [1, 0, 0, 0, 0, 0] and game.audit.sum() == 1
     assert P.public_suspicion(game)[2] == P.BROKEN_WORD
     assert game.legal_mask(1)[:15].sum() < 15  # the next leader, like every other seat, is still bound
 
@@ -521,7 +537,7 @@ def test_silenced_slots_look_like_saying_nothing():
     assert np.array_equal(P.encode_comm(silenced, 4), P.encode_comm(reference, 4))
 
 
-@pytest.mark.parametrize("cfg", [F, M])
+@pytest.mark.parametrize("cfg", [F, M, FX, OPT])
 def test_scripted_players_finish_communication_games(cfg):
     rng = np.random.default_rng(0)
     rule, rand = RuleController(), RandomController()
@@ -602,3 +618,132 @@ def test_short_communication_run_branches_from_a_silent_checkpoint(tmp_path):
     train(load_config(PILOT, {**comm_over, "total_games": 96, "resume": True}))
     lines = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text(encoding="utf-8").splitlines()]
     assert lines[-1]["iteration"] == 3
+
+
+# ---------------------------------------------------------------------- replies and promises (F3)
+def team_value(speaker: int, seats) -> int:
+    """Team-head value, in `speaker`'s frame, of the absolute seats."""
+    return 1 + A.TEAM_INDEX[len(seats)][tuple(sorted((s - speaker) % 6 for s in seats))]
+
+
+def test_replies_answer_earlier_speakers_and_bind_votes():
+    game = make_game(leader=0, comm=FX)
+    play_quest(game, [0, 4], approvers=[0, 1, 4, 5], failers=[4])  # records against 0, 4 (quest) and 1, 5 (vote)
+    # Round 2 (three seats), leader 1: seats 2, 3, 4, 5, 0 speak, then the leader.
+    assert not mask_of(game, P.H_REPLY + 4).any()  # the first speaker has nobody to answer
+    speak_as(game, 2, team=team_value(2, [1, 2, 5]))
+    endorse_ok = mask_of(game, P.H_REPLY + 4, judge2=P.J_EVIL)  # seat 3 answers seat 2 after accusing seat 5
+    assert endorse_ok.tolist() == [True, False, True]  # it cannot endorse a team with a player it accuses
+    say(game, judge2=P.J_EVIL, reply5=P.Y_DISPUTE)
+    assert game.msg_log[1, 3, P.H_RBASIS + 4] == P.B_TEAM  # derived: seat 2's team holds the accused seat 5
+    assert mask_of(game, P.H_REPLY + 3).tolist() == [True, True, False]  # seat 4 has no basis to dispute seat 2
+    say(game, reply4=P.Y_ENDORSE)
+    say(game, team=team_value(5, [2, 3, 5]))  # seat 5 suggests another team
+    say(game)  # seat 0
+    say(game, reply1=P.Y_ENDORSE)  # the leader adopts seat 2's team ...
+    teams = game.legal_mask(1)[:20]
+    assert np.flatnonzero(teams).tolist() == [A.team_action(1, [1, 2, 5])]  # ... and proposes it
+    propose(game, [1, 2, 5])
+    assert [bound_vote(game, p) for p in range(6)] == ["free", "approve", "approve", "reject", "approve", "free"]
+    record = game.to_record()["discussions"][1]["messages"]
+    assert record[1]["replies"] == {2: {"reply": "dispute", "basis": "team"}} and record[2]["replies"] == {2: {"reply": "endorse"}}
+    vote(game, [1, 2, 4, 0])
+    assert not game.audit[:, [P.A_REPLY, P.A_PROMISE]].any()
+
+
+def test_a_leader_adopts_only_a_clean_team_with_itself():
+    game = make_game(leader=0, comm=FX)
+    speak_as(game, 1, team=team_value(1, [1, 0]))  # round 1: no record, every team is equally clean
+    speak_as(game, 2, team=team_value(2, [2, 3]))
+    assert mask_of(game, P.H_REPLY + 4).tolist() == [True, True, False]  # nobody has a basis to dispute yet
+    while game.acting_players() != [0]:
+        say(game)
+    assert mask_of(game, P.H_REPLY + 1).tolist() == [True, False, False]  # seat 2's team is without the leader
+    assert mask_of(game, P.H_REPLY + 0)[P.Y_ENDORSE]
+    say(game, reply1=P.Y_ENDORSE)
+    assert np.flatnonzero(game.legal_mask(0)[:15]).tolist() == [A.team_action(0, [0, 1])]
+
+
+def test_a_dispute_cites_the_first_basis_that_holds():
+    game = make_game(leader=0, comm=FX)
+    play_quest(game, [0, 4], approvers=[0, 2, 4, 5], failers=[4])  # against 0, 4 (quest), 2, 5 (vote)
+    play_quest(game, [1, 3, 5], approvers=[1, 3, 5, 0])  # for 1, 3, 5 (quest)
+    # Round 3, leader 2: seats 3, 4, 5, 0, 1, then 2.
+    speak_as(game, 3, judge2=P.J_GOOD, judge1=P.J_EVIL)  # seat 3 vouches for seat 5 and accuses seat 4
+    say(game, judge1=P.J_EVIL, reply5=P.Y_DISPUTE)  # seat 4 calls seat 5 evil and disputes seat 3 ...
+    assert game.msg_log[2, 4, P.H_RBASIS + 4] == P.B_DEFENSE  # ... on the accusation before the judgment
+    speak_as(game, 1, judge4=P.J_EVIL, reply2=P.Y_DISPUTE)  # seat 1 calls seat 5 evil and disputes seat 3
+    assert game.msg_log[2, 1, P.H_RBASIS + 1] == P.B_JUDGMENT
+
+
+def test_promises_force_the_next_rounds_judgment():
+    game = make_game(leader=0, comm=FX)
+    game.free_seats = frozenset({3})
+    # Round 1, leader 0: seats 1-5, then 0.
+    speak_as(game, 2, promise2=P.K_FAIL_EVIL, promise5=P.K_SUCCESS_GOOD)  # about seats 4 and 1
+    assert mask_of(game, P.H_PROMISE + 2, promise1=P.K_FAIL_EVIL, promise2=P.K_FAIL_EVIL).tolist() == [True, False, True]
+    game.step({3: P.free_message(game, 3, promises=[P.K_FAIL_EVIL])})  # the free seat 3: "if 4 fails, 4 is evil"
+    while game.acting_players() != [0]:
+        say(game)
+    merlin = mask_of(game, P.H_PROMISE + 0)  # Merlin cannot promise to accuse seat 1, whom he knows to be good
+    assert not merlin[P.K_FAIL_EVIL] and mask_of(game, P.H_PROMISE + 3)[P.K_FAIL_EVIL]  # seat 4 he can
+    say(game)
+    propose(game, [0, 4])
+    vote(game, range(6))
+    quest(game, failers=[4])
+    # Round 2, leader 1: seat 2 must now call seat 4 evil; seat 1 was not on the quest, so that promise lapses.
+    assert mask_of(game, P.H_JUDGE + 1).tolist() == [False, False, True] + [False] * 5
+    assert mask_of(game, P.H_JUDGE + 4)[[P.J_NONE, P.J_GOOD, P.J_EVIL]].tolist() == [True, False, True]
+    say(game)
+    assert game.msg_log[1, 2, P.H_JUDGE + 1] == P.J_EVIL
+    game.step({3: P.free_message(game, 3)})  # the free seat breaks its promise: counted in public
+    assert game.audit[3, P.A_PROMISE] == 1 and game.audit[:, P.A_PROMISE].sum() == 1
+
+
+def test_promises_close_where_no_discussion_follows():
+    game = make_game(leader=0, comm=FX, binding=False)  # leaders propose freely
+    play_quest(game, [0, 4], failers=[4])
+    play_quest(game, [1, 2, 5], failers=[5])  # two fails: a third ends the game
+    ok = P.message_context(game, game.acting_players()[0])["promise_ok"]
+    assert ok[:, P.K_FAIL_EVIL].sum() == 0 and ok[:, P.K_SUCCESS_GOOD].all()
+
+
+def test_communication_networks_before_replies_and_promises_load_unchanged():
+    from src.agents.policy import is_legacy_state
+
+    torch.manual_seed(0)
+    net = ActorCritic(comm=True)
+    obs, g_old, g_new = net.obs_dim, P.LEGACY["comm_global_dim"], P.COMM_GLOBAL_DIM
+    n_old = A.N_ACTIONS + P.LEGACY["n_msg_logits"]
+    with torch.no_grad():  # what an old network looks like in today's layout: nothing reads or writes the new parts
+        for layer in (net.actor[0], net.critic[0]):
+            layer.weight[:, obs + g_old:obs + g_new] = 0
+        net.actor[-1].weight[n_old:] = 0
+        net.actor[-1].bias[n_old:] = 0
+        for enc in (net.actor_msg, net.critic_msg):
+            enc.weight[:, P.LEGACY["msg_feat_dim"]:] = 0
+    legacy = {}
+    for key, value in net.state_dict().items():
+        if key in ("actor.0.weight", "critic.0.weight"):
+            value = torch.cat([value[:, :obs + g_old], value[:, obs + g_new:]], dim=1)
+        elif key in ("actor.4.weight", "actor.4.bias"):
+            value = value[:n_old]
+        elif key in ("actor_msg.weight", "critic_msg.weight"):
+            value = value[:, :P.LEGACY["msg_feat_dim"]]
+        legacy[key] = value
+    assert is_legacy_state(legacy) and not is_legacy_state(net.state_dict())
+    upgraded = ActorCritic(comm=True)
+    upgraded.load_state_dict(legacy)
+    for key, value in net.state_dict().items():
+        assert torch.equal(upgraded.state_dict()[key], value), key
+
+
+def test_a_team_suggestion_is_a_choice_only_where_the_configuration_says_so():
+    forced, free = make_game(leader=0, comm=F), make_game(leader=0, comm=OPT)
+    assert not mask_of(forced, P.H_TEAM)[0] and mask_of(forced, P.H_TEAM)[1:].any()
+    assert mask_of(free, P.H_TEAM)[0] and (mask_of(free, P.H_TEAM)[1:] == mask_of(forced, P.H_TEAM)[1:]).all()
+    say(free, team=0)  # seat 1 names no team: nothing for the others to answer
+    assert not mask_of(free, P.H_REPLY + 4)[[P.Y_ENDORSE, P.Y_DISPUTE]].any()
+    discuss(free)
+    propose(free, [0, 1])
+    assert bound_vote(free, 1) == "free"  # and nothing binds its vote

@@ -187,3 +187,57 @@ def test_rule_players_suspect_whoever_acted_against_its_words():
     game.audit[2, P.A_JUDGE] = game.audit[2, P.A_TEAM] = 1
     game.audit[3, P.A_VOUCH] = 2
     assert public_suspicion(game).tolist() == [0, 0, 2 * BROKEN_WORD, 2 * FAILED_VOUCH, 0, 0]
+
+
+F3 = P.CommConfig(enabled=True, reply=True, promise=True)
+
+
+def test_teacher_replies_and_promises_follow_what_the_speaker_knows():
+    games, log = play_with_teacher(F3, n=120, knowledge=1.0)
+    assert all(g.done for g in games)
+    assert not any(g.audit[:, [P.A_JUDGE, P.A_INTENT, P.A_TEAM, P.A_REPLY, P.A_PROMISE]].any() for g in games)
+    counts = {"endorse": 0, "dispute": 0, "promise": 0}
+    for phase, role, speaker, known_evil, msg, game, quest, leader, *_ in log:
+        if phase != Phase.DISCUSS:
+            continue
+        replies = msg[P.H_REPLY:P.H_REPLY + P.N_OTHERS]
+        promises = msg[P.H_PROMISE:P.H_PROMISE + P.N_OTHERS]
+        counts["endorse"] += int((replies == P.Y_ENDORSE).sum())
+        counts["dispute"] += int((replies == P.Y_DISPUTE).sum())
+        counts["promise"] += int((promises > 0).sum())
+        assert not leader or (replies == P.Y_ENDORSE).sum() <= 1  # a leader adopts at most one team
+        others = P._others(speaker)
+        if role in (Role.MORGANA, Role.ASSASSIN):  # never promises to accuse its teammate
+            assert not (known_evil[others] & (promises == P.K_FAIL_EVIL)).any()
+        if role == Role.MERLIN:  # the protocol's rule here: no promise to accuse a player he knows to be good
+            assert not (~known_evil[others] & (promises == P.K_FAIL_EVIL)).any()
+    assert min(counts.values()) > 0, counts
+
+
+def test_teacher_merlin_promises_like_a_good_player_where_he_may_accuse_good_players():
+    bluff = P.CommConfig(enabled=True, reply=True, promise=True, team_optional=True, merlin_may_accuse_good=True)
+    games, log = play_with_teacher(bluff, n=200, knowledge=1.0)
+    assert all(g.done for g in games)
+    assert not any(g.audit[:, [P.A_JUDGE, P.A_INTENT, P.A_TEAM, P.A_REPLY, P.A_PROMISE]].any() for g in games)
+    about_good = about_evil = 0
+    for phase, role, speaker, known_evil, msg, *_ in log:
+        if phase == Phase.DISCUSS and role == Role.MERLIN:
+            promises, evil = msg[P.H_PROMISE:P.H_PROMISE + P.N_OTHERS], known_evil[P._others(speaker)]
+            about_good += int((~evil & (promises == P.K_FAIL_EVIL)).sum())
+            about_evil += int((evil & (promises == P.K_SUCCESS_GOOD)).sum())
+    assert about_good > 0 and about_evil > 0  # the promises only a player without his sight would make
+
+
+def test_where_suggestions_are_a_choice_the_teacher_names_a_team_only_with_a_reason():
+    opt = P.CommConfig(enabled=True, reply=True, promise=True, team_optional=True)
+    games, log = play_with_teacher(opt, n=120)
+    assert all(g.done for g in games)
+    named = {True: 0, False: 0}
+    for phase, role, speaker, known_evil, msg, game, quest, leader, *_ in log:
+        if phase != Phase.DISCUSS or leader:
+            continue
+        suggests = msg[P.H_TEAM] > 0
+        named[bool(suggests)] += 1
+        assert not (suggests and quest == 0)  # no record yet: no reason
+        assert not (suggests and (msg[P.H_REPLY:P.H_REPLY + P.N_OTHERS] == P.Y_ENDORSE).any())  # it backs that team
+    assert min(named.values()) > 0, named
