@@ -30,7 +30,7 @@ from scripts import human_test_talk as talk
 ROOT = Path(__file__).resolve().parents[1]
 KEY_FILE = ROOT / "openai_api_key.txt"
 API = "https://api.openai.com/v1"
-CHAT_MODEL, VOICE_MODEL = "gpt-4.1-mini", "gpt-4o-mini-transcribe"
+CHAT_MODEL, VOICE_MODEL = "gpt-6-luna", "gpt-transcribe"
 MAX_TEXT, MAX_AUDIO = 300, 2_000_000  # characters of one speech; bytes of one recording (about 60 s)
 AUDIO_TYPES = {"audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg", "audio/wav": "wav", "audio/mpeg": "mp3",
                "audio/x-m4a": "m4a", "audio/aac": "m4a", "video/webm": "webm", "video/mp4": "mp4"}
@@ -103,8 +103,9 @@ class LanguageModel:
         self._spend("chat")
         body = {"model": self.chat_model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
                 "response_format": {"type": "json_schema", "json_schema": {"name": name, "strict": True, "schema": schema}}}
-        if self.chat_model.startswith("gpt-5"):
-            body.update(max_completion_tokens=max_tokens + 200, reasoning_effort="none" if re.match(r"gpt-5\.\d", self.chat_model) else "minimal")
+        if re.match(r"gpt-[5-9]", self.chat_model):  # these take no temperature; answer without a reasoning pass
+            body.update(max_completion_tokens=max_tokens + 200,
+                        reasoning_effort="minimal" if re.match(r"gpt-5(-|$)", self.chat_model) else "none")
         else:
             body.update(max_tokens=max_tokens, temperature=0)
         answer = self._post("/chat/completions", json.dumps(body).encode("utf-8"), "application/json", timeout)
