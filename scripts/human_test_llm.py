@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 KEY_FILE = ROOT / "openai_api_key.txt"
 API = "https://api.openai.com/v1"
 CHAT_MODEL, VOICE_MODEL = "gpt-6-luna", "gpt-transcribe"
+REASONING = "low"  # effort of the model's reasoning pass: "none" answers at once; "low" read 91 of 91 test sentences (87-89 without)
 MAX_TEXT, MAX_AUDIO = 300, 2_000_000  # characters of one speech; bytes of one recording (about 60 s)
 AUDIO_TYPES = {"audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg", "audio/wav": "wav", "audio/mpeg": "mp3",
                "audio/x-m4a": "m4a", "audio/aac": "m4a", "video/webm": "webm", "video/mp4": "mp4"}
@@ -66,9 +67,10 @@ class LanguageModel:
     """Calls to the provider with a time limit and a daily budget. Thread-safe; holds no visitor data."""
 
     def __init__(self, key_file: Path | None = KEY_FILE, chat_model=CHAT_MODEL, voice_model=VOICE_MODEL,
-                 timeout=12.0, daily_chat=6000, daily_voice=1500):
+                 timeout=12.0, daily_chat=6000, daily_voice=1500, reasoning=REASONING):
         self.key = read_key(key_file)
         self.chat_model, self.voice_model, self.timeout = chat_model, voice_model, timeout
+        self.reasoning = reasoning  # effort of the reasoning pass before an answer, for the models that have one
         self.limits = {"chat": daily_chat, "voice": daily_voice}
         self.used, self.day, self.lock = {"chat": 0, "voice": 0}, None, threading.Lock()
 
@@ -104,8 +106,9 @@ class LanguageModel:
         body = {"model": self.chat_model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
                 "response_format": {"type": "json_schema", "json_schema": {"name": name, "strict": True, "schema": schema}}}
         if re.match(r"gpt-[5-9]", self.chat_model):  # these take no temperature; answer without a reasoning pass
-            body.update(max_completion_tokens=max_tokens + 200,
-                        reasoning_effort="minimal" if re.match(r"gpt-5(-|$)", self.chat_model) else "none")
+            thinks = self.reasoning != "none"  # a reasoning pass spends tokens of the same limit
+            body.update(max_completion_tokens=max_tokens + (3000 if thinks else 200),
+                        reasoning_effort="minimal" if re.match(r"gpt-5(-|$)", self.chat_model) and not thinks else self.reasoning)
         else:
             body.update(max_tokens=max_tokens, temperature=0)
         answer = self._post("/chat/completions", json.dumps(body).encode("utf-8"), "application/json", timeout)
@@ -376,7 +379,7 @@ Seat 5 is Merlin -> I say seat 5 is Merlin.""",
 }
 
 
-def polish(model: LanguageModel, m: dict, ctx: dict, lang: str, teams: dict | None = None, timeout: float = 5.0) -> str | None:
+def polish(model: LanguageModel, m: dict, ctx: dict, lang: str, teams: dict | None = None, timeout: float = 7.0) -> str | None:
     """A natural sentence for an agent's message, or None when the template must be shown: nothing to polish, the
     model failed, or the sentence read back through the ears does not give the message's stance.
     `ctx`: `say_context` of the speaker before it spoke (who had spoken, the team size, the leader)."""
