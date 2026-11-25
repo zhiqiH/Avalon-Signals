@@ -12,7 +12,8 @@
 
 The consent choice made on the home page is remembered in the browser and prefilled in both modes, where it
 can still be changed per game. Only shared data is used for research: finished matches of consenting visitors
-are appended to the match log; analysis records are kept per visitor and only shared ones enter the pooled
+are appended to the match log, and what they typed or said at a talking table (as text) to the speech log;
+analysis records are kept per visitor and only shared ones enter the pooled
 statistics and --export-analysis. Pages, styles and language strings live in web/human_test/.
 
 An experiment interface only: it never touches training code or runs.
@@ -145,7 +146,8 @@ def handler_for(sessions: TableSessions, store: Store, model: llm.LanguageModel)
                 if not text:
                     raise ValueError("没有听清，请再说一次。")
             items = llm.understand(model, text, ticket["ctx"])
-            result, session = sessions.request(session, "#items", {"items": items, "id": ticket["id"], "revision": ticket["revision"]})
+            result, session = sessions.request(session, "#items", {"items": items, "id": ticket["id"], "revision": ticket["revision"],
+                                                                   "text": text, "voice": audio is not None, "lang": lang})
             result.update(by="model", text=text[:llm.MAX_TEXT])
             return result, session
 
@@ -215,6 +217,9 @@ def main():
     parser.add_argument("--analysis-seeds", type=int, nargs="+", choices=SEEDS, default=list(SEEDS))
     parser.add_argument("--match-log", type=Path, default=LOG_DIR / "match_games.jsonl",
                         help="shared matches are appended here (JSONL)")
+    parser.add_argument("--speech-log", type=Path,
+                        help="what sharing visitors typed or said at a talking table, as text, with what the agents heard "
+                             "(JSONL, one translation per line; default: speech.jsonl next to --match-log)")
     parser.add_argument("--talk-dir", type=Path, default=TALK_DIR,
                         help="talking agents of the match mode: seed<k>/checkpoint.pt")
     parser.add_argument("--llm-key", type=Path, default=llm.KEY_FILE,
@@ -234,7 +239,8 @@ def main():
         return
     torch.set_num_threads(1)
     model = llm.LanguageModel(args.llm_key)
-    sessions = TableSessions(args.match_seed, log=MatchLog(args.match_log), talk_dir=args.talk_dir,
+    speech_log = args.speech_log or args.match_log.with_name("speech.jsonl")
+    sessions = TableSessions(args.match_seed, log=MatchLog(args.match_log), talk_dir=args.talk_dir, speech_log=GameLog(speech_log),
                              language_model=f"{model.chat_model} + {model.voice_model}" if model.available else None)
     store = Store(args.analysis_dir, load_assassins(args.analysis_seeds))
     store.adopt_orphans(args.analysis_dir.with_name(args.analysis_dir.name + "_legacy_code.txt"))
@@ -251,7 +257,8 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     url = f"http://127.0.0.1:{args.port}"
     print(f"Avalon Signals human test: {url}  (match {url}/match/, analysis {url}/analysis/)\n"
-          f"  shared matches  -> {args.match_log.resolve()}\n  analysis records -> {args.analysis_dir.resolve()}\n"
+          f"  shared matches  -> {args.match_log.resolve()}\n  shared speech   -> {speech_log.resolve()}\n"
+          f"  analysis records -> {args.analysis_dir.resolve()}\n"
           f"  language model   -> {f'{model.chat_model}, voice {model.voice_model}' if model.available else 'off (no key)'}\n"
           "Press Ctrl+C to stop.", flush=True)
     if not args.no_browser:

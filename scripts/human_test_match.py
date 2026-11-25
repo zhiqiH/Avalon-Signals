@@ -6,8 +6,10 @@ nothing limits what it says or does, only clear statements reach the agents (scr
 deeds against one's words are counted in the public audit. No human seat is held to the good players' vote guard.
 A language model may translate on both sides (scripts/human_test_llm.py): the visitor's typed or spoken words into
 a stance, and an agent's message into a natural sentence. It runs outside the table lock: the table hands out the
-plain facts it needs (`say_context`, `take_job`) and takes back the result (`hear`, `set_said`). The visitor's own
-words are kept for the page only while the table lives; they are not part of any record.
+plain facts it needs (`say_context`, `take_job`) and takes back the result (`hear`, `set_said`). For visitors who
+agreed to share, the words they typed or spoke (as text, never the recording) are kept next to what the agents
+heard: every translation in the speech log, and the words of each speech in the game record. They serve to check
+the translation. Without that agreement the words live only in the table's memory, for the page.
 
 Each browser gets its own table; frozen weights are shared, game state is not. Completed games of visitors
 who agreed to share are appended to the match log (JSONL, one game per line, no IP or browser data).
@@ -40,7 +42,7 @@ from src.training.checkpoint import comm_config, load_checkpoint, load_policies
 ROOT = Path(__file__).resolve().parents[1]
 TALK_DIR = ROOT / "comm"  # seed<k>/checkpoint.pt: the talking agents (local files, not in git)
 MODES = ("silent", "talk")
-CONSENT_VERSION = 3  # Bump when the consent wording in web/human_test changes (3: speech goes through a language model, 2026-11-25).
+CONSENT_VERSION = 4  # Bump when the consent wording in web/human_test changes (4: shared games keep the visitor's words as text, 2026-11-25).
 SAY_LIMITS = {"text": 60, "voice": 40}  # translations of the visitor's speech per game
 ROLE_NAMES = {Role.SERVANT: "忠臣", Role.MERLIN: "梅林", Role.PERCIVAL: "派西维尔",
               Role.MORGANA: "莫甘娜", Role.ASSASSIN: "刺客"}
@@ -93,12 +95,17 @@ class GameLog:
     def __init__(self, path):
         self.path = Path(path) if path else None
 
-    def write(self, record):
+    def append(self, record):
         if self.path is None:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    def write(self, record):
+        if self.path is None:
+            return
+        self.append(record)
         print(f"[{record['finished_utc']}] 已保存共享对局：访客 {record['player']} 第 {record['player_game']} 局，"
               f"{record['human_role']}，{'胜' if record['human_won'] else '负'}", flush=True)
 
@@ -106,8 +113,10 @@ class GameLog:
 class HumanTable:
     """One visitor's table; only a filtered human view crosses the HTTP boundary."""
 
-    def __init__(self, default_baseline=0, models=None, log=None, clock=time.time, talk_dir=TALK_DIR, language_model=None):
+    def __init__(self, default_baseline=0, models=None, log=None, clock=time.time, talk_dir=TALK_DIR, language_model=None,
+                 speech_log=None):
         self.default_baseline = default_baseline
+        self.speech_log = speech_log if speech_log is not None else GameLog(None)  # translations of sharing visitors
         self.talk_dir = Path(talk_dir)
         self.language_model = language_model  # name of the model that translates at talk tables (for the record)
         self.game = None
@@ -179,7 +188,17 @@ class HumanTable:
             raise ValueError("牌桌已更新，请刷新后再操作。")
         result = llm.to_stance(data["items"], llm.say_context(game, self.human))
         result["stance"] = talk.clean_stance(result["stance"], game, self.human)
+        self.note_translation(data.get("text"), result, "model", data)
         return result
+
+    def note_translation(self, text, result, by, data):
+        """One line of the speech log: the visitor's words and what the agents would hear (sharing visitors only)."""
+        if self.share and isinstance(text, str):
+            self.speech_log.append({
+                "utc": datetime.now(timezone.utc).isoformat(timespec="seconds"), "player": self.player, "player_game": self.games,
+                "table_id": self.id, "baseline_seed": self.baseline, "human_seat": self.human, "phase": self.game.phase.name,
+                "quest": int(self.game.quest), "voice": bool(data.get("voice")), "lang": data.get("lang"), "by": by,
+                "text": text[:llm.MAX_TEXT], "statements": data.get("items"), "stance": result["stance"], "ignored": result["ignored"]})
 
     def take_job(self):
         """The agent's speech that was just made, for the language model to put into a sentence (given out once)."""
@@ -202,7 +221,9 @@ class HumanTable:
         text = data.get("text")
         if not isinstance(text, str):
             raise ValueError("发言格式不正确。")
-        return talk.parse(text, game, self.human)
+        result = talk.parse(text, game, self.human)
+        self.note_translation(text, result, "rules", data)
+        return result
 
     def speak(self, data, advance):
         """One speaker of the discussion: the human's stance, or the next agent's message."""
@@ -217,10 +238,11 @@ class HumanTable:
             stance = talk.clean_stance(data["stance"], game, self.human)
             msg = talk.stance_message(game, self.human, stance)
             words = data.get("text")
-            if isinstance(words, str) and words.strip():  # the visitor's own words, for the page only
+            if isinstance(words, str) and words.strip():  # the visitor's own words: on the page, and in a shared record
                 self.said[key] = {"raw": words.strip()[:llm.MAX_TEXT]}
             self.decisions.append({"phase": phase.name, "quest": q, "message": P.decode_message(msg, speaker, size),
-                                   "typed": bool(data.get("typed")), "seconds": round(self.clock() - self.started, 1)})
+                                   "typed": bool(data.get("typed")), "text": self.said.get(key, {}).get("raw"),
+                                   "seconds": round(self.clock() - self.started, 1)})
         else:
             if not advance:
                 raise ValueError("当前请点击继续，等待 AI 行动。")
@@ -313,7 +335,7 @@ class HumanTable:
                 "agents": "baseline" if self.mode == "silent" else self.talk_dir.name,
                 "human_free": self.mode == "talk", "human_guarded": False, "consent_version": CONSENT_VERSION,
                 # The sentences a language model made of the agents' messages, as the visitor read them (quest 0-4
-                # or "evil", seat 0-5). The visitor's own words are not recorded, only the stance in `human_decisions`.
+                # or "evil", seat 0-5). The visitor's own words are in `human_decisions` ("text"), next to the message.
                 "language_model": self.language_model if self.mode == "talk" else None,
                 "spoken": [{"quest": q, "seat": s, **{k: v for k, v in x.items() if k != "raw"}}
                            for (q, s), x in self.said.items() if s != self.human],
@@ -420,9 +442,9 @@ class TableSessions:
     """Independent browser sessions sharing frozen model weights, never game state."""
 
     def __init__(self, default_baseline=0, ttl=7200, capacity=128, idle_evict=600, log=None,
-                 clock=time.monotonic, talk_dir=TALK_DIR, language_model=None):
+                 clock=time.monotonic, talk_dir=TALK_DIR, language_model=None, speech_log=None):
         self.default_baseline, self.ttl, self.capacity, self.idle_evict = default_baseline, ttl, capacity, idle_evict
-        self.talk_dir, self.language_model = talk_dir, language_model
+        self.talk_dir, self.language_model, self.speech_log = talk_dir, language_model, speech_log
         self.log = log if log is not None else GameLog(None)
         self.clock = clock
         self.tables = {}
@@ -450,7 +472,7 @@ class TableSessions:
                     del self.tables[oldest]
                 session_id, created = secrets.token_urlsafe(32), True
                 self.tables[session_id] = (HumanTable(self.default_baseline, self.models, self.log, talk_dir=self.talk_dir,
-                                                      language_model=self.language_model), now)
+                                                      language_model=self.language_model, speech_log=self.speech_log), now)
             table, _ = self.tables[session_id]
             self.tables[session_id] = (table, now)
             try:
