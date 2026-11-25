@@ -34,7 +34,7 @@ CHAT_MODEL, VOICE_MODEL = "gpt-4.1-mini", "gpt-4o-mini-transcribe"
 MAX_TEXT, MAX_AUDIO = 300, 2_000_000  # characters of one speech; bytes of one recording (about 60 s)
 AUDIO_TYPES = {"audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg", "audio/wav": "wav", "audio/mpeg": "mp3",
                "audio/x-m4a": "m4a", "audio/aac": "m4a", "video/webm": "webm", "video/mp4": "mp4"}
-KINDS = ("claim", "judge", "team", "veto", "require", "reply", "promise", "soft", "other")
+KINDS = ("claim", "judge", "team", "veto", "require", "reply", "promise", "group", "soft", "other")
 VALUES = ("servant", "percival", "merlin", "good", "evil", "endorse", "dispute", "fail_evil", "success_good")
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["items"], "properties": {"items": {
     "type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["kind", "seats", "value", "quote"],
@@ -157,6 +157,7 @@ the team that player suggested ("同意6号", "6号的队我赞成", "6号说得
 If the speaker also repeats a judgment ("我同意1号，3号是坏人" -> judge evil [3] plus reply endorse [1]).
 - promise: a condition on THIS round's quest result: "如果任务失败，我就认定3号是坏人" -> value fail_evil; \
 "如果成功我就认3号是好人" -> value success_good. seats = the players it is about.
+- group: a statement about several players TOGETHER that does not say what EACH of them is: one of them / at least one / exactly one is evil or good ("2号和4号中有一张坏", "2和4里有一个坏人", "3、5一好一坏", "one of 2 and 4 is evil", "either 5 or 6 is the spy"), they are on the same side or linked ("1号和6号是一伙的", "2和4绑定"), or they must not go together ("2号和4号不能同时上"). The agents have no such statement, so it is NOT passed on: never turn it into judge, veto or require for the players named. seats = the players named, value null. (Only when the speaker says ALL of them are evil or good is it judge: "2号和4号都是坏人". A promise about several players, "任务要是失败，1号和3号里谁在队里，我就说谁是坏人", stays a promise.)
 - soft: a hedged, uncertain or weak opinion about players (有点怪, 可能, 也许, 好像, 感觉, 不确定, 轻踩, 小踩, 先观察, maybe, might, \
 not sure, a bit, kind of, seems, probably). It is NOT passed on to the agents. Never turn a hedged opinion into judge, veto or require.
 - other: everything else: questions, reasons, descriptions of what happened, jokes, statements with no player or no stance.
@@ -172,6 +173,7 @@ For each part of the speech give kind, seats, value, and quote (the exact words)
 - judge: the speaker states which good role players have. value merlin | percival | servant. \
 ("5号是梅林" -> judge merlin [5]; "2号像忠臣，不是梅林" -> judge servant [2].) "我觉得/我认为/I think/I believe 5 is Merlin" is a clear statement: judge merlin [5].
 A proposal to assassinate a player ("刺5号", "杀5号吧", "stab 5", "let's kill 5") says that player is Merlin: judge merlin [5].
+- group: a statement about several players together that does not say which of them it is ("梅林在2号和5号之间", "Merlin is 2 or 5", "one of 1 and 3 is Merlin"). Not passed on. seats = the players named, value null.
 - soft: a hedged or uncertain guess (可能, 也许, 好像, 不确定, maybe, might, not sure). Not passed on.
 - other: everything else.
 Never use the kinds claim, team, veto, require, reply or promise here."""
@@ -223,6 +225,8 @@ def to_stance(items: list[dict], ctx: dict) -> dict:
         why = "unknown"
         if kind == "soft":
             why = "soft"
+        elif kind == "group":  # "one of 2 and 4 is evil": the protocol has no statement about players together
+            why = "group"
         elif kind == "other" or kind not in KINDS:
             why = "other"
         elif evil_talk:
