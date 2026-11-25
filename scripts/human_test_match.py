@@ -4,6 +4,10 @@ Two kinds of table: "silent" (the silent baseline) and "talk" (the talking agent
 quest in the slot protocol, replies and conditional promises included). At a talk table the human's seat is free:
 nothing limits what it says or does, only clear statements reach the agents (scripts/human_test_talk.py), and
 deeds against one's words are counted in the public audit. No human seat is held to the good players' vote guard.
+A language model may translate on both sides (scripts/human_test_llm.py): the visitor's typed or spoken words into
+a stance, and an agent's message into a natural sentence. It runs outside the table lock: the table hands out the
+plain facts it needs (`say_context`, `take_job`) and takes back the result (`hear`, `set_said`). The visitor's own
+words are kept for the page only while the table lives; they are not part of any record.
 
 Each browser gets its own table; frozen weights are shared, game state is not. Completed games of visitors
 who agreed to share are appended to the match log (JSONL, one game per line, no IP or browser data).
@@ -24,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 import torch
 
+from scripts import human_test_llm as llm
 from scripts import human_test_talk as talk
 from src.agents import PolicyController, Request
 from src.comm import protocol as P
@@ -35,7 +40,8 @@ from src.training.checkpoint import comm_config, load_checkpoint, load_policies
 ROOT = Path(__file__).resolve().parents[1]
 TALK_DIR = ROOT / "comm"  # seed<k>/checkpoint.pt: the talking agents (local files, not in git)
 MODES = ("silent", "talk")
-CONSENT_VERSION = 2  # Bump when the consent wording in web/human_test changes (2: one-line text, 2026-11-20).
+CONSENT_VERSION = 3  # Bump when the consent wording in web/human_test changes (3: speech goes through a language model, 2026-11-25).
+SAY_LIMITS = {"text": 60, "voice": 40}  # translations of the visitor's speech per game
 ROLE_NAMES = {Role.SERVANT: "忠臣", Role.MERLIN: "梅林", Role.PERCIVAL: "派西维尔",
               Role.MORGANA: "莫甘娜", Role.ASSASSIN: "刺客"}
 REASONS = {WinReason.ASSASSIN_MISSED: "刺杀未命中梅林", WinReason.ASSASSIN_HIT: "刺客命中梅林",
@@ -100,9 +106,10 @@ class GameLog:
 class HumanTable:
     """One visitor's table; only a filtered human view crosses the HTTP boundary."""
 
-    def __init__(self, default_baseline=0, models=None, log=None, clock=time.time, talk_dir=TALK_DIR):
+    def __init__(self, default_baseline=0, models=None, log=None, clock=time.time, talk_dir=TALK_DIR, language_model=None):
         self.default_baseline = default_baseline
         self.talk_dir = Path(talk_dir)
+        self.language_model = language_model  # name of the model that translates at talk tables (for the record)
         self.game = None
         self.models = models if models is not None else {}
         self.log = log if log is not None else GameLog(None)
@@ -147,6 +154,44 @@ class HumanTable:
         self.games += 1
         self.event = {"kind": "start", "text": "身份已分配。请先阅读左侧的私人信息，再开始行动。"}
         self.decisions = []
+        self.said, self.job, self.say_used = {}, None, {"text": 0, "voice": 0}
+        return self.view()
+
+    # ---- the language model's side of a speech (scripts/human_test_llm.py); the model itself is called by the server
+    def my_turn_to_speak(self):
+        game = self.game
+        if game is None or game.done or not game.in_discussion or game.acting_players() != [self.human]:
+            raise ValueError("现在不是你的发言时间。")
+        return game
+
+    def say_context(self, data):
+        """What a translation of the visitor's speech needs about the table; counts one translation of this game."""
+        game, kind = self.my_turn_to_speak(), "voice" if data.get("voice") else "text"
+        if self.say_used[kind] >= SAY_LIMITS[kind]:
+            raise ValueError("本局的识别次数已用完，请用下方按钮发言。")
+        self.say_used[kind] += 1
+        return {"ctx": llm.say_context(game, self.human), "id": self.id, "revision": self.revision}
+
+    def hear(self, data):
+        """The stance of the statements a language model read from the visitor's speech (changes nothing)."""
+        game = self.my_turn_to_speak()
+        if data.get("id") != self.id or data.get("revision") != self.revision:
+            raise ValueError("牌桌已更新，请刷新后再操作。")
+        result = llm.to_stance(data["items"], llm.say_context(game, self.human))
+        result["stance"] = talk.clean_stance(result["stance"], game, self.human)
+        return result
+
+    def take_job(self):
+        """The agent's speech that was just made, for the language model to put into a sentence (given out once)."""
+        job, self.job = self.job, None
+        return job
+
+    def set_said(self, data):
+        """Keep the sentence a language model made of an agent's message."""
+        if data.get("id") == self.id and self.game is not None:
+            self.said.setdefault(tuple(data["key"]), {})[data["lang"]] = data["text"]
+            if self.event.get("kind") == "speech" and self.event.get("key") == list(data["key"]):
+                self.event["message"]["said"] = self.said[tuple(data["key"])]
         return self.view()
 
     def parse(self, data):
@@ -164,11 +209,16 @@ class HumanTable:
         game, speaker = self.game, self.game.acting_players()[0]
         phase, q = game.phase, game.quest
         size = QUEST_SIZES[0] if phase == Phase.EVIL_DISCUSS else game.team_size
+        key = ("evil" if phase == Phase.EVIL_DISCUSS else int(q), int(speaker))  # where this speech sits in the talk log
+        self.job = None
         if speaker == self.human:
             if advance or "stance" not in data:
                 raise ValueError("请先发言，或选择不发言。")
             stance = talk.clean_stance(data["stance"], game, self.human)
             msg = talk.stance_message(game, self.human, stance)
+            words = data.get("text")
+            if isinstance(words, str) and words.strip():  # the visitor's own words, for the page only
+                self.said[key] = {"raw": words.strip()[:llm.MAX_TEXT]}
             self.decisions.append({"phase": phase.name, "quest": q, "message": P.decode_message(msg, speaker, size),
                                    "typed": bool(data.get("typed")), "seconds": round(self.clock() - self.started, 1)})
         else:
@@ -179,9 +229,15 @@ class HumanTable:
             if msg is None:
                 side = "evil" if game.is_evil_seat(speaker) else "good"
                 msg = self.ai[side].speak([Request(0, game, speaker, None, ctx)], self.rng).messages[0]
+            said_ctx = llm.say_context(game, speaker)  # the table as the speaker met it, for the sentence
+        message = talk.message_view(P.decode_message(np.asarray(msg), speaker, size))
+        if speaker != self.human:
+            self.job = {"id": self.id, "key": list(key), "view": message, "ctx": said_ctx,
+                        "teams": {o["seat"]: o["team"] for o in said_ctx["earlier"] if o["team"]}}
         game.step({speaker: msg})
-        self.event = {"kind": "speech", "evil_talk": phase == Phase.EVIL_DISCUSS,
-                      "message": talk.message_view(P.decode_message(np.asarray(msg), speaker, size)),
+        if key in self.said:
+            message["said"] = self.said[key]
+        self.event = {"kind": "speech", "evil_talk": phase == Phase.EVIL_DISCUSS, "message": message, "key": list(key),
                       "text": f"{speaker + 1} 号发言。"}
         self.revision += 1
         return self.view()
@@ -256,6 +312,11 @@ class HumanTable:
         return {"kind": "human_vs_baseline" if self.mode == "silent" else "human_vs_talk", "mode": self.mode,
                 "agents": "baseline" if self.mode == "silent" else self.talk_dir.name,
                 "human_free": self.mode == "talk", "human_guarded": False, "consent_version": CONSENT_VERSION,
+                # The sentences a language model made of the agents' messages, as the visitor read them (quest 0-4
+                # or "evil", seat 0-5). The visitor's own words are not recorded, only the stance in `human_decisions`.
+                "language_model": self.language_model if self.mode == "talk" else None,
+                "spoken": [{"quest": q, "seat": s, **{k: v for k, v in x.items() if k != "raw"}}
+                           for (q, s), x in self.said.items() if s != self.human],
                 "finished_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 "player": self.player, "player_game": self.games, "table_id": self.id,
                 "baseline_seed": self.baseline, "checkpoint_sha256": self.ai["sha256"],
@@ -331,13 +392,19 @@ class HumanTable:
             leader = int(g.prop_leader[q, 0]) if g.prop_leader[q, 0] >= 0 else g.leader  # still talking
             order = [(leader + k) % N_PLAYERS for k in range(1, N_PLAYERS)] + [leader]
             rounds.append({"quest": q + 1, "evil_talk": False, "messages": [
-                talk.message_view(P.decode_message(g.msg_log[q, s], s, QUEST_SIZES[q])) for s in order if spoke[s]]})
+                self.with_said(talk.message_view(P.decode_message(g.msg_log[q, s], s, QUEST_SIZES[q])), (q, int(s))) for s in order if spoke[s]]})
         spoke = g.evil_log[:, 0] >= 0
         if spoke.any():
             order = [g.seat_of(Role.MORGANA), g.seat_of(Role.ASSASSIN)]
             rounds.append({"quest": None, "evil_talk": True, "messages": [
-                talk.message_view(P.decode_message(g.evil_log[s], s, QUEST_SIZES[0])) for s in order if spoke[s]]})
+                self.with_said(talk.message_view(P.decode_message(g.evil_log[s], s, QUEST_SIZES[0])), ("evil", int(s))) for s in order if spoke[s]]})
         return rounds
+
+    def with_said(self, message, key):
+        """A message view with its sentences: {"zh" / "en": the language model's, "raw": the visitor's own words}."""
+        if key in self.said:
+            message["said"] = self.said[key]
+        return message
 
     def replay(self):
         if self.game is None or not self.game.done:
@@ -353,9 +420,9 @@ class TableSessions:
     """Independent browser sessions sharing frozen model weights, never game state."""
 
     def __init__(self, default_baseline=0, ttl=7200, capacity=128, idle_evict=600, log=None,
-                 clock=time.monotonic, talk_dir=TALK_DIR):
+                 clock=time.monotonic, talk_dir=TALK_DIR, language_model=None):
         self.default_baseline, self.ttl, self.capacity, self.idle_evict = default_baseline, ttl, capacity, idle_evict
-        self.talk_dir = talk_dir
+        self.talk_dir, self.language_model = talk_dir, language_model
         self.log = log if log is not None else GameLog(None)
         self.clock = clock
         self.tables = {}
@@ -382,8 +449,8 @@ class TableSessions:
                         raise RuntimeError("当前牌桌人数已满，请稍后再试。")
                     del self.tables[oldest]
                 session_id, created = secrets.token_urlsafe(32), True
-                self.tables[session_id] = (HumanTable(self.default_baseline, self.models, self.log,
-                                                      talk_dir=self.talk_dir), now)
+                self.tables[session_id] = (HumanTable(self.default_baseline, self.models, self.log, talk_dir=self.talk_dir,
+                                                      language_model=self.language_model), now)
             table, _ = self.tables[session_id]
             self.tables[session_id] = (table, now)
             try:
@@ -395,6 +462,14 @@ class TableSessions:
                     result = table.replay()
                 elif path == "/api/parse":
                     result = table.parse(data)
+                elif path == "#context":  # the "#" paths serve the language model and are not reachable over HTTP
+                    result = table.say_context(data)
+                elif path == "#items":
+                    result = table.hear(data)
+                elif path == "#job":
+                    result = table.take_job()
+                elif path == "#said":
+                    result = table.set_said(data)
                 elif path in ("/api/action", "/api/advance", "/api/speak"):
                     result = table.step(data, advance=path.endswith("advance"))
                 else:

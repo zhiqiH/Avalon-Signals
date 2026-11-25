@@ -4,12 +4,18 @@ const $ = id => document.getElementById(id);
 const T = I18N.t;
 const BASE = '/match';
 const SIZES = [2, 3, 4, 3, 4];
+const MIC = '<svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zM6 11a6 6 0 0 0 12 0M12 17v4"/></svg>';
 const CROWN = '<svg viewBox="0 0 16 16"><path d="M2 12.5h12l1-7.5-4 3-3-5.5-3 5.5-4-3z"/></svg>';
 let S = {active: false}, sel = new Set(), busy = false, timer = null;
+let ahead = null;    // the next state, asked for while the visitor still reads the current one: {id, revision, p}
+let rec = null;      // the recording in progress: {recorder, timer}
+let hearing = false; // a typed sentence or a recording is with the language model
 const setup = {role: 'random', seat: 1, baseline: 0, share: null, mode: 'talk'};
 // What the visitor is about to say (a stance, see scripts/human_test_talk.py); the suggested team is `sel`.
 let draft = newDraft();
 function newDraft() { return {claim: null, judge: {}, veto: [], require: [], reply: {}, promise: {}, ignored: [], text: '', typed: false}; }
+// Spoken sentences: the agents' messages put into natural speech by a language model (the meaning is checked on the server).
+const spoken = () => !!S.llm && $('spoken').checked;
 
 function pref(key, fallback) { try { const v = localStorage.getItem(key); return v === null ? fallback : v; } catch (e) { return fallback; } }
 function setPref(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
@@ -26,29 +32,82 @@ async function move(action) {
   if (busy) return;
   busy = true; showErr('');
   try {
-    S = await api(action === null ? '/api/advance' : '/api/action', {id: S.id, revision: S.revision, ...(action === null ? {} : {action})});
+    S = await api('/api/action', {id: S.id, revision: S.revision, action});
     sel.clear(); draft = newDraft(); render();
   } catch (e) { showErr(e.message); } finally { busy = false; }
+}
+// The agents' next step is asked for as soon as the current one is shown, so that the visitor's reading time
+// covers the server's work (a spoken sentence takes a second or two).
+function fetchAhead() {
+  if (ahead || !S.active || S.done || S.human_turn) return;
+  const p = api('/api/advance', {id: S.id, revision: S.revision, polish: spoken(), lang: I18N.lang});
+  p.catch(() => {});  // reported when the step is taken
+  ahead = {id: S.id, revision: S.revision, p};
+}
+async function advance() {
+  if (busy) return;
+  busy = true; showErr('');
+  fetchAhead();
+  const mine = ahead;
+  try {
+    const next = mine ? await mine.p : S;
+    if (ahead === mine) ahead = null;
+    if (mine && S.id === mine.id && S.revision === mine.revision) { S = next; sel.clear(); draft = newDraft(); }
+  } catch (e) { if (ahead === mine) ahead = null; showErr(e.message); }
+  finally { busy = false; render(); }
 }
 
 async function speak(stance) {
   if (busy) return;
   busy = true; showErr('');
   try {
-    S = await api('/api/speak', {id: S.id, revision: S.revision, stance, typed: draft.typed});
+    S = await api('/api/speak', {id: S.id, revision: S.revision, stance, typed: draft.typed, ...(draft.typed && draft.text.trim() ? {text: draft.text.trim()} : {})});
     sel.clear(); draft = newDraft(); render();
   } catch (e) { showErr(e.message); } finally { busy = false; }
 }
+function heard(r) {  // what the agents would hear in a typed or spoken sentence becomes the draft
+  Object.assign(draft, {claim: r.stance.claim, judge: r.stance.judge, veto: r.stance.veto, require: r.stance.require,
+                        reply: r.stance.reply || {}, promise: r.stance.promise || {}, ignored: r.ignored, typed: true});
+  if (typeof r.text === 'string') draft.text = r.text;
+  sel = new Set(r.stance.team || []);
+}
 async function parseText() {
   if (busy || !draft.text.trim()) return;
-  busy = true; showErr('');
+  busy = hearing = true; showErr(''); render();
+  try { heard(await api('/api/parse', {text: draft.text, lang: I18N.lang})); }
+  catch (e) { showErr(e.message); } finally { busy = hearing = false; render(); }
+}
+// Voice: tap to record, tap again to stop (30 s at most); the recording is turned into text and read like typed text.
+const canRecord = () => !!S.llm && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+async function toggleMic() {
+  if (rec) { rec.recorder.stop(); return; }
+  if (busy) return;
+  showErr('');
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({audio: true}); }
+  catch (e) { showErr(T('mic.denied')); render(); return; }
+  const type = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find(t => MediaRecorder.isTypeSupported(t));
+  const recorder = new MediaRecorder(stream, type ? {mimeType: type, audioBitsPerSecond: 32000} : {});
+  const chunks = [], table = S.id;
+  recorder.addEventListener('dataavailable', e => { if (e.data.size) chunks.push(e.data); });
+  recorder.addEventListener('stop', () => {
+    clearTimeout(rec.timer); rec = null;
+    stream.getTracks().forEach(t => t.stop());
+    const blob = new Blob(chunks, {type: (recorder.mimeType || type || 'audio/webm').split(';')[0]});
+    if (S.id === table && blob.size) hearVoice(blob); else render();
+  });
+  rec = {recorder, timer: setTimeout(() => recorder.stop(), 30000)};
+  recorder.start();
+  render();
+}
+async function hearVoice(blob) {
+  busy = hearing = true; showErr(''); render();
   try {
-    const r = await api('/api/parse', {text: draft.text});
-    Object.assign(draft, {claim: r.stance.claim, judge: r.stance.judge, veto: r.stance.veto, require: r.stance.require,
-                          reply: r.stance.reply || {}, promise: r.stance.promise || {}, ignored: r.ignored, typed: true});
-    sel = new Set(r.stance.team || []);
-    render();
-  } catch (e) { showErr(e.message); } finally { busy = false; }
+    const r = await fetch(`${BASE}/api/hear?lang=${I18N.lang}`, {method: 'POST', headers: {'Content-Type': blob.type}, body: blob});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Error');
+    heard(j);
+  } catch (e) { showErr(e.message); } finally { busy = hearing = false; render(); }
 }
 
 const isEvilRole = k => k === 'MORGANA' || k === 'ASSASSIN';
@@ -77,6 +136,11 @@ function sentence(m, teams = {}) {
     if (about.length) parts.push(T(`s.promise.${kind}${about.length > 1 ? '.n' : ''}`, {n: I18N.seats(about)}));
   }
   return parts.length ? parts.join(zh ? '；' : '; ') : T('s.none');
+}
+// What the page shows for a message: the visitor's own words, the spoken sentence in the page language, or the template.
+function said(m, teams = {}) {
+  const x = m.said || {};
+  return x.raw || (spoken() && x[I18N.lang]) || sentence(m, teams);
 }
 function draftStance() {
   const team = suggesting() && sel.size === S.team_size ? [...sel].sort((a, b) => a - b) : null;
@@ -167,7 +231,7 @@ function renderCenter() {
   line.className = 'event';
   if (!ev) { line.textContent = ''; return; }
   if (ev.kind === 'start') line.textContent = T('ev.start');
-  else if (ev.kind === 'speech') line.textContent = `${who(ev.message.speaker)}${I18N.lang === 'zh' ? '：' : ': '}${sentence(ev.message, speechTeams())}`;
+  else if (ev.kind === 'speech') line.textContent = `${who(ev.message.speaker)}${I18N.lang === 'zh' ? '：' : ': '}${said(ev.message, speechTeams())}`;
   else if (ev.kind === 'proposal') line.textContent = T('ev.proposal', {l: ev.leader, team: I18N.seats(ev.team || [])});
   else if (ev.kind === 'vote') {
     const y = ev.votes.filter(Boolean).length;
@@ -196,10 +260,11 @@ function renderDock() {
   if (!S.active) { dock.append(btn(T('newGame'), 'primary wide', openSetup)); return; }
   if (S.done) { dock.append(btn(T('again'), 'primary wide', openSetup), btn(T('replay'), 'ghost', downloadReplay)); return; }
   if (!S.human_turn) {
-    dock.append(btn(T('continue') + ' →', 'primary wide', () => move(null)));
-    // Speech needs time to be read: the pause grows with the sentence just shown.
-    const pause = S.event.kind === 'speech' ? Math.min(8000, 1600 + 70 * sentence(S.event.message, speechTeams()).length) : 1500;
-    if ($('auto').checked) timer = setTimeout(() => { timer = null; if (!busy && !$('setup').open) move(null); }, pause);
+    dock.append(btn(T('continue') + ' →', 'primary wide', advance));
+    fetchAhead();
+    // Speech needs time to be read: the pause grows with the sentence just shown (an English sentence has more characters).
+    const pause = S.event.kind === 'speech' ? Math.min(9000, 1600 + (I18N.lang === 'zh' ? 70 : 28) * said(S.event.message, speechTeams()).length) : 1500;
+    if ($('auto').checked) timer = setTimeout(() => { timer = null; if (!busy && !$('setup').open) advance(); }, pause);
     return;
   }
   if (talking()) { composer(dock); return; }
@@ -229,14 +294,33 @@ function cycle(label, value, states, onChange) {
   return c;
 }
 function composer(dock) {
-  const evilTalk = S.phase === 'EVIL_DISCUSS', box = el('div', 'composer');
+  const evilTalk = S.phase === 'EVIL_DISCUSS';
+  let box = el('div', 'composer');
   const form = el('form', 'say'), input = el('input', 'input');
   input.placeholder = T(evilTalk ? 'say.phEvil' : 'say.ph'); input.maxLength = 300; input.value = draft.text; input.autocomplete = 'off';
   input.addEventListener('input', () => { draft.text = input.value; });
   const go = el('button', 'btn slim'); go.type = 'submit'; go.textContent = T('say.parse');
-  form.append(input, go);
+  form.append(input);
+  if (canRecord()) {
+    const mic = el('button', 'btn slim mic' + (rec ? ' on' : ''), rec ? '■' : MIC); mic.type = 'button';
+    mic.setAttribute('aria-label', T(rec ? 'mic.stop' : 'mic.start')); mic.title = T(rec ? 'mic.stop' : 'mic.start');
+    mic.addEventListener('click', toggleMic);
+    form.append(mic);
+  }
+  form.append(go);
   form.addEventListener('submit', e => { e.preventDefault(); parseText(); });
   box.append(form);
+  // On a phone the composer covers the error line of the page, so an error is repeated here.
+  if (rec || hearing) box.append(el('p', 'note status', T(rec ? 'mic.on' : 'say.hearing')));
+  else if (!$('err').hidden) { const p = el('p', 'note bad'); p.textContent = $('err').textContent; box.append(p); }
+  else if (S.llm && !draft.typed) box.append(el('p', 'note', T('say.note')));
+  // The buttons below set the same stance by hand; with a language model they start folded away.
+  const manual = el('details', 'manual'), top = box;
+  manual.open = pref('avalon_manual', S.llm ? 'closed' : 'open') === 'open';
+  manual.addEventListener('toggle', () => setPref('avalon_manual', manual.open ? 'open' : 'closed'));
+  manual.append(el('summary', '', T('say.manual')));
+  box = el('div', 'manual-body');
+  manual.append(box);
   if (!evilTalk) {
     const claims = el('div', 'chips');
     for (const [value, label] of [[null, T('say.noClaim')], ['servant', I18N.role('SERVANT')], ['percival', I18N.role('PERCIVAL')]]) {
@@ -257,7 +341,7 @@ function composer(dock) {
   const promiseStates = [[undefined, T('say.none')], ...say.promise.map(k => [k, T('say.' + k), k === 'fail_evil' ? 'evil' : 'good'])];
   if (say.promised.length) {
     const zh = I18N.lang === 'zh';
-    box.append(el('p', 'note due', T('say.promised') + say.promised.map(x => T('s.judge', {n: x.seat, j: zh ? T('side.' + x.judgment) : T('side.' + x.judgment).toLowerCase()})).join(zh ? '；' : '; ')));
+    top.append(el('p', 'note due', T('say.promised') + say.promised.map(x => T('s.judge', {n: x.seat, j: zh ? T('side.' + x.judgment) : T('side.' + x.judgment).toLowerCase()})).join(zh ? '；' : '; ')));
   }
   const rows = el('div', 'stances' + (say.reply.length || say.promise.length ? ' wide' : ''));
   for (let s = 1; s <= 6; s++) {
@@ -279,10 +363,12 @@ function composer(dock) {
     rows.append(row);
   }
   box.append(rows);
+  box = top;
+  box.append(manual);
   if (suggesting()) box.append(el('p', 'note', T('say.team', {k: sel.size, n: S.team_size})));
   const heard = el('p', 'heard'); heard.textContent = T('say.heard') + sentence(draftMessage(), teamsNow());
   box.append(heard);
-  for (const x of draft.ignored) { const p = el('p', 'ignored'); p.textContent = `“${x.text}” — ${T('why.' + x.why)}`; box.append(p); }
+  for (const x of draft.ignored) if (x.why !== 'other') { const p = el('p', 'ignored'); p.textContent = `“${x.text}” — ${T('why.' + x.why)}`; box.append(p); }
   const partial = suggesting() && sel.size > 0 && sel.size !== S.team_size;
   const actions = el('div', 'actions');
   actions.append(btn(T('say.silent'), 'ghost', () => speak({})), btn(T('say.send'), 'primary wide', () => speak(draftStance()), partial));
@@ -302,7 +388,11 @@ function renderTalk() {
     for (const m of round.messages) {
       const line = el('p', 'line'), name = el('b', m.speaker === S.human ? 'you' : '');
       name.textContent = who(m.speaker);
-      line.append(name, document.createTextNode(sentence(m, teams)));
+      line.append(name, document.createTextNode(said(m, teams)));
+      if (m.said && m.said.raw) {  // under the visitor's own words: what reached the agents
+        const sub = el('span', 'sub'); sub.textContent = T('say.heard') + sentence(m, teams);
+        line.append(sub);
+      }
       box.append(line);
     }
     return box;
@@ -338,7 +428,10 @@ function renderLog() {
   $('log').innerHTML = `<table class="log"><tr><th>${T('col.q')}</th><th>${T('col.lead')}</th><th>${T('col.team')}</th><th>${T('col.votes')}</th><th>${T('col.res')}</th></tr>${rows}</table>`;
 }
 
-function render() { renderTrack(); renderRing(); renderCenter(); renderDock(); renderMe(); renderTalk(); renderLog(); }
+function render() {
+  $('spoken-row').hidden = !(S.llm && S.active && S.mode === 'talk');
+  renderTrack(); renderRing(); renderCenter(); renderDock(); renderMe(); renderTalk(); renderLog();
+}
 
 // ---- new game dialog
 function chips(box, items, key) {
@@ -373,7 +466,7 @@ $('setup-form').addEventListener('submit', async e => {
     setPref('avalon_share', setup.share ? 'yes' : 'no');
     setPref('avalon_mode', setup.mode);
     S = await api('/api/new', {role: setup.role, seat: setup.seat, baseline: setup.baseline, share: setup.share, mode: setup.mode});
-    sel.clear(); draft = newDraft(); showErr(''); $('setup').close(); render();
+    ahead = null; sel.clear(); draft = newDraft(); showErr(''); $('setup').close(); render();
   } catch (err) { $('setup-err').textContent = I18N.err(err.message); $('setup-err').hidden = false; }
   finally { busy = false; $('start').disabled = false; $('start').textContent = T('start'); }
 });
@@ -385,6 +478,8 @@ $('rules-ok').addEventListener('click', () => $('rules').close());
 setup.mode = pref('avalon_mode', 'talk') === 'silent' ? 'silent' : 'talk';
 $('auto').checked = pref('avalon_autoplay', 'on') === 'on';
 $('auto').addEventListener('change', () => { setPref('avalon_autoplay', $('auto').checked ? 'on' : 'off'); renderDock(); });
+$('spoken').checked = pref('avalon_spoken', 'on') === 'on';
+$('spoken').addEventListener('change', () => { setPref('avalon_spoken', $('spoken').checked ? 'on' : 'off'); render(); });
 
 async function downloadReplay() {
   try {
