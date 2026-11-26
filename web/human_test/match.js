@@ -14,7 +14,7 @@ const setup = {role: 'random', seat: 1, baseline: 0, share: null, mode: 'talk'};
 // The home page links to one kind of table: /match/?mode=silent or /match/?mode=talk.
 const FIXED_MODE = (m => (m === 'silent' || m === 'talk' ? m : null))(new URLSearchParams(location.search).get('mode'));
 if (FIXED_MODE) document.body.dataset.title = `mode.${FIXED_MODE}.name`;
-let openBubble = null;  // the speech bubble opened by a tap: "quest-seat"
+let plan = null;  // the team a leader named while speaking, picked for the proposal that follows: {id, quest, team}
 // What the visitor is about to say (a stance, see scripts/human_test_talk.py); the suggested team is `sel`.
 let draft = newDraft();
 function newDraft() { return {claim: null, judge: {}, veto: [], require: [], reply: {}, promise: {}, ignored: [], text: '', typed: false}; }
@@ -74,6 +74,8 @@ function heard(r) {  // what the agents would hear in a typed or spoken sentence
                         reply: r.stance.reply || {}, promise: r.stance.promise || {}, ignored: r.ignored, typed: true});
   if (typeof r.text === 'string') draft.text = r.text;
   sel = new Set(r.stance.team || []);
+  plan = r.propose ? {id: S.id, quest: S.quest, team: r.propose} : null;
+  if (plan) draft.ignored = draft.ignored.map(x => (x.why === 'leader' ? {...x, why: 'leader_kept'} : x));
 }
 async function parseText() {
   if (busy || !draft.text.trim()) return;
@@ -176,36 +178,21 @@ function renderTrack() {
   $('tries').innerHTML = [0, 1, 2, 3, 4].map(i => `<b class="${i < rejected ? 'on' : ''}"></b>`).join('');
 }
 
-// The discussion whose speeches sit next to the seats: the current round's (it stays through the round's
-// proposals, votes and quest), or the evil players' talk before the assassination.
-function bubbleRound() {
-  const r = S.active && S.talk && S.talk.length ? S.talk[S.talk.length - 1] : null;
-  return r && (r.evil_talk || S.done || r.quest === S.quest) ? r : null;
-}
+// The speech just made sits in a bubble next to its seat until the table moves on.
 function renderBubbles(ring) {
   ring.querySelectorAll('.bubble').forEach(n => n.remove());
-  const round = bubbleRound();
-  if (!round) return;
-  const teams = round.evil_talk ? {} : teamsOf(round.messages);
-  const latest = S.event.kind === 'speech' && talking() ? S.event.message.speaker : null;
-  for (const m of round.messages) {
-    const key = `${round.evil_talk ? 'evil' : round.quest}-${m.speaker}`;
-    const b = el('button', `bubble b${pos(m.speaker)}`); b.type = 'button';
-    const text = said(m, teams);
-    const inner = el('span', 'txt'); inner.textContent = text;  // the text is cut to two lines inside the padding
-    b.append(inner);
-    if (!(m.said && m.said.raw) && sentence(m, teams) === T('s.none')) b.classList.add('mute');
-    if (m.speaker === latest) b.classList.add('now');
-    if (openBubble === key) b.classList.add('open');
-    b.setAttribute('aria-label', `${T('said', {n: who(m.speaker)})}: ${text}`);
-    b.addEventListener('click', () => { openBubble = openBubble === key ? null : key; renderBubbles(ring); });
-    ring.append(b);
-  }
+  if (!S.active || !S.talk || S.event.kind !== 'speech') return;
+  const m = S.event.message, teams = speechTeams();
+  const b = el('div', `bubble b${pos(m.speaker)}`);
+  b.textContent = said(m, teams);
+  if (!(m.said && m.said.raw) && sentence(m, teams) === T('s.none')) b.classList.add('mute');
+  if (S.active && m.speaker === S.human) b.classList.add('mine');
+  b.setAttribute('aria-label', `${T('said', {n: who(m.speaker)})}: ${b.textContent}`);
+  ring.append(b);
 }
 
 function renderRing() {
   const ring = $('ring');
-  ring.classList.toggle('long', !!(S.active && S.mode === 'talk'));
   renderBubbles(ring);
   ring.querySelectorAll('.seat').forEach(n => n.remove());
   const leading = S.active && !S.done && ['DISCUSS', 'PROPOSE', 'VOTE', 'QUEST'].includes(S.phase);
@@ -264,7 +251,7 @@ function renderCenter() {
   line.className = 'event';
   if (!ev) { line.textContent = ''; return; }
   if (ev.kind === 'start') line.textContent = T('ev.start');
-  else if (ev.kind === 'speech') line.textContent = '';  // the speech is in the bubble next to its seat
+  else if (ev.kind === 'speech') line.textContent = sub ? `${big} · ${sub}` : big;  // the bubble covers the centre of the table
   else if (ev.kind === 'proposal') line.textContent = T('ev.proposal', {l: ev.leader, team: I18N.seats(ev.team || [])});
   else if (ev.kind === 'vote') {
     const y = ev.votes.filter(Boolean).length;
@@ -401,6 +388,7 @@ function composer(dock) {
   box = top;
   box.append(manual);
   if (suggesting()) box.append(el('p', 'note', T('say.team', {k: sel.size, n: S.team_size})));
+  else if (!evilTalk && S.human === S.leader) box.append(el('p', 'note', T('say.leader')));
   const heard = el('p', 'heard'); heard.textContent = T('say.heard') + sentence(draftMessage(), teamsNow());
   box.append(heard);
   for (const x of draft.ignored) if (x.why !== 'other') { const p = el('p', 'ignored'); p.textContent = `“${x.text}” — ${T('why.' + x.why)}`; box.append(p); }
@@ -464,6 +452,11 @@ function renderLog() {
 }
 
 function render() {
+  // A leader who named a team while speaking finds it picked when the proposal comes.
+  if (plan && S.active && S.id === plan.id && S.quest === plan.quest && S.phase === 'PROPOSE' && S.human_turn && S.attempt === 1) {
+    if (!sel.size) sel = new Set(plan.team);
+    plan = null;
+  } else if (plan && (!S.active || S.id !== plan.id || S.quest !== plan.quest || !['DISCUSS', 'PROPOSE'].includes(S.phase))) plan = null;
   $('spoken-row').hidden = !(S.llm && S.active && S.mode === 'talk');
   renderTrack(); renderRing(); renderCenter(); renderDock(); renderMe(); renderTalk(); renderLog();
 }

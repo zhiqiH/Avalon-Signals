@@ -124,7 +124,7 @@ class LanguageModel:
             raise ValueError("录音格式或长度不支持。")
         self._spend("voice")
         boundary = uuid.uuid4().hex
-        hint = ("阿瓦隆桌游发言。1号、2号、3号、4号、5号、6号，好人，坏人，梅林，派西维尔，莫甘娜，刺客，忠臣，推荐，上车，任务，投票。" if lang == "zh"
+        hint = ("阿瓦隆桌游发言。1号、2号、3号、4号、5号、6号，好人，坏人，梅林，派西维尔，莫甘娜，刺客，忠臣，推荐，上车，发车，任务，投票。" if lang == "zh"
                 else "Avalon board game talk. Seat 1, seat 2, seat 3, seat 4, seat 5, seat 6, good, evil, Merlin, Percival, Morgana, Assassin, Servant, quest, team.")
         fields = {"model": self.voice_model, "language": "zh" if lang == "zh" else "en", "response_format": "json", "prompt": hint}
         parts = [f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode("utf-8") for k, v in fields.items()]
@@ -219,7 +219,7 @@ def to_stance(items: list[dict], ctx: dict) -> dict:
     """Statements -> {"stance", "heard", "ignored"} for the speaker of `ctx`, by fixed rules: what the table does
     not allow is left out with its reason (the same reasons as the rule parser `human_test_talk.parse`)."""
     me, evil_talk = ctx["me"], ctx["evil_talk"]
-    stance, heard, ignored = talk.empty_stance(), [], []
+    stance, heard, ignored, propose = talk.empty_stance(), [], [], None
     spoke = {o["seat"]: o["team"] for o in ctx["earlier"]}
     for item in items:
         kind, value, quote = item.get("kind"), item.get("value"), str(item.get("quote") or "").strip()[:MAX_TEXT]
@@ -249,8 +249,10 @@ def to_stance(items: list[dict], ctx: dict) -> dict:
             elif value in talk.EVIL_TALK_JUDGMENTS:
                 why = "role_name"
         elif kind == "team" and named:
-            if me == ctx["leader"]:
+            if me == ctx["leader"]:  # the leader's message has no team: its proposal follows at once
                 why = "leader"
+                if len(named) == ctx["team_size"]:
+                    propose = named  # the page picks these seats for the proposal
             elif len(named) != ctx["team_size"]:
                 why = "size"
             else:
@@ -277,7 +279,7 @@ def to_stance(items: list[dict], ctx: dict) -> dict:
         if quote:
             (heard.append(quote) if why is None else ignored.append({"text": quote, "why": why}))
     stance["require"] = [s for s in stance["require"] if s not in stance["veto"]]
-    return {"stance": stance, "heard": heard, "ignored": ignored}
+    return {"stance": stance, "heard": heard, "ignored": ignored, "propose": propose}
 
 
 # ---------------------------------------------------------------------- mouth: message -> sentence
