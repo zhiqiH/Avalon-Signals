@@ -13,7 +13,13 @@ logs/
 *.pt
 # ...except the frozen silent baseline, which every communication run starts from
 !baseline/seed*/checkpoint_19532.pt
+# ...and the Comm networks the human test's talk table plays with
+!comm/seed*/checkpoint.pt
 
 # OS and editor files
 .DS_Store
 .vscode/
+
+# API keys are filled in by hand and never committed
+openai_api_key.txt
+.env

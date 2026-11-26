@@ -40,7 +40,7 @@ from src.env.rules import N_PLAYERS, N_QUESTS, QUEST_SIZES, Phase, Role, WinReas
 from src.training.checkpoint import comm_config, load_checkpoint, load_policies
 
 ROOT = Path(__file__).resolve().parents[1]
-TALK_DIR = ROOT / "comm"  # seed<k>/checkpoint.pt: the talking agents (local files, not in git)
+TALK_DIR = ROOT / "comm"  # seed<k>/checkpoint.pt: the talking agents
 MODES = ("silent", "talk")
 CONSENT_VERSION = 4  # Bump when the consent wording in web/human_test changes (4: shared games keep the visitor's words as text, 2026-11-25).
 SAY_LIMITS = {"text": 60, "voice": 40}  # translations of the visitor's speech per game

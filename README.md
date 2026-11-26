@@ -301,7 +301,7 @@ The browser table of the human test (one human, five agents, replies and promise
 │   ├── runner.py            Plays many games in lockstep with batched decisions
 │   └── config.py            YAML-backed training configuration
 ├── baseline/                Frozen silent baseline (Silent): seed0-2 checkpoints (10,000,384 games) with config, metrics and run info
-├── comm/                    Trained Comm networks, seed0-2 (local only, not tracked)
+├── comm/                    Comm networks, seed0-2, played by the human test's talk table: one clean pass of the pipeline, 3,000 iterations of talk (1,536,000 talk games); Section 8's results are from the earlier networks
 ├── configs/                 baseline_silent.yaml (Silent), comm.yaml (Comm), pilot_silent.yaml (tests)
 ├── scripts/                 train.py, run_comm_pipeline.sh, distill_speaker.py, evaluate.py, crossplay.py, comm_diagnostics.py, dialect_probe.py, trace_game.py, free_seat_check.py, analyze_messages.py, best_response.py, exploitability.py, plot_training.py, benchmark.py, play_web.py
 ├── tests/                   Rules, information leakage, observation encoding, GAE, message protocol, message statistics, short training runs
