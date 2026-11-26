@@ -29,15 +29,21 @@
     </section>
 
     <section class="modes">
-      <a class="mode card" href="/match/" data-mode>
+      <a class="mode card" href="/match/?mode=silent" data-mode>
         <span class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="3.5" r="1.6"/><circle cx="12" cy="20.5" r="1.6"/><circle cx="4.6" cy="7.8" r="1.6"/><circle cx="19.4" cy="7.8" r="1.6"/><circle cx="4.6" cy="16.2" r="1.6"/><circle cx="19.4" cy="16.2" r="1.6"/></svg></span>
-        <h3 data-t="mode.match">人机对战</h3>
-        <p data-t="mode.match.d">一名真人与五个 AI 对局，无发言</p>
+        <h3 data-t="mode.silent.name">静默版</h3>
+        <p data-t="mode.silent.d">一名真人与五个 AI 对局，全程不发言</p>
+        <span class="go" data-t="go">进入 →</span>
+      </a>
+      <a class="mode card" href="/match/?mode=talk" data-mode>
+        <span class="icon"><svg viewBox="0 0 24 24"><path d="M4 5.5h16v10.5h-8.5L7 20v-4H4z"/><path d="M8 9.5h8M8 12.5h5"/></svg></span>
+        <h3 data-t="mode.talk.name">发言版</h3>
+        <p data-t="mode.talk.d">每轮组队前轮流发言，可打字或语音；AI 说到做到</p>
         <span class="go" data-t="go">进入 →</span>
       </a>
       <a class="mode card" href="/analysis/" data-mode>
         <span class="icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M11 7.5v7M7.5 11h7M16 16l4.5 4.5"/></svg></span>
-        <h3 data-t="mode.analysis">刺杀分析</h3>
+        <h3 data-t="mode.analysis">刺杀辅助</h3>
         <p data-t="mode.analysis.d">录入线下对局，由 AI 刺客推断梅林</p>
         <span class="go" data-t="go">进入 →</span>
       </a>

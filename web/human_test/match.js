@@ -11,6 +11,10 @@ let ahead = null;    // the next state, asked for while the visitor still reads 
 let rec = null;      // the recording in progress: {recorder, timer}
 let hearing = false; // a typed sentence or a recording is with the language model
 const setup = {role: 'random', seat: 1, baseline: 0, share: null, mode: 'talk'};
+// The home page links to one kind of table: /match/?mode=silent or /match/?mode=talk.
+const FIXED_MODE = (m => (m === 'silent' || m === 'talk' ? m : null))(new URLSearchParams(location.search).get('mode'));
+if (FIXED_MODE) document.body.dataset.title = `mode.${FIXED_MODE}.name`;
+let openBubble = null;  // the speech bubble opened by a tap: "quest-seat"
 // What the visitor is about to say (a stance, see scripts/human_test_talk.py); the suggested team is `sel`.
 let draft = newDraft();
 function newDraft() { return {claim: null, judge: {}, veto: [], require: [], reply: {}, promise: {}, ignored: [], text: '', typed: false}; }
@@ -172,8 +176,37 @@ function renderTrack() {
   $('tries').innerHTML = [0, 1, 2, 3, 4].map(i => `<b class="${i < rejected ? 'on' : ''}"></b>`).join('');
 }
 
+// The discussion whose speeches sit next to the seats: the current round's (it stays through the round's
+// proposals, votes and quest), or the evil players' talk before the assassination.
+function bubbleRound() {
+  const r = S.active && S.talk && S.talk.length ? S.talk[S.talk.length - 1] : null;
+  return r && (r.evil_talk || S.done || r.quest === S.quest) ? r : null;
+}
+function renderBubbles(ring) {
+  ring.querySelectorAll('.bubble').forEach(n => n.remove());
+  const round = bubbleRound();
+  if (!round) return;
+  const teams = round.evil_talk ? {} : teamsOf(round.messages);
+  const latest = S.event.kind === 'speech' && talking() ? S.event.message.speaker : null;
+  for (const m of round.messages) {
+    const key = `${round.evil_talk ? 'evil' : round.quest}-${m.speaker}`;
+    const b = el('button', `bubble b${pos(m.speaker)}`); b.type = 'button';
+    const text = said(m, teams);
+    const inner = el('span', 'txt'); inner.textContent = text;  // the text is cut to two lines inside the padding
+    b.append(inner);
+    if (!(m.said && m.said.raw) && sentence(m, teams) === T('s.none')) b.classList.add('mute');
+    if (m.speaker === latest) b.classList.add('now');
+    if (openBubble === key) b.classList.add('open');
+    b.setAttribute('aria-label', `${T('said', {n: who(m.speaker)})}: ${text}`);
+    b.addEventListener('click', () => { openBubble = openBubble === key ? null : key; renderBubbles(ring); });
+    ring.append(b);
+  }
+}
+
 function renderRing() {
   const ring = $('ring');
+  ring.classList.toggle('long', !!(S.active && S.mode === 'talk'));
+  renderBubbles(ring);
   ring.querySelectorAll('.seat').forEach(n => n.remove());
   const leading = S.active && !S.done && ['DISCUSS', 'PROPOSE', 'VOTE', 'QUEST'].includes(S.phase);
   for (let s = 1; s <= 6; s++) {
@@ -231,7 +264,7 @@ function renderCenter() {
   line.className = 'event';
   if (!ev) { line.textContent = ''; return; }
   if (ev.kind === 'start') line.textContent = T('ev.start');
-  else if (ev.kind === 'speech') line.textContent = `${who(ev.message.speaker)}${I18N.lang === 'zh' ? '：' : ': '}${said(ev.message, speechTeams())}`;
+  else if (ev.kind === 'speech') line.textContent = '';  // the speech is in the bubble next to its seat
   else if (ev.kind === 'proposal') line.textContent = T('ev.proposal', {l: ev.leader, team: I18N.seats(ev.team || [])});
   else if (ev.kind === 'vote') {
     const y = ev.votes.filter(Boolean).length;
@@ -257,6 +290,7 @@ function renderDock() {
   const dock = $('dock');
   dock.replaceChildren();
   clearTimeout(timer); timer = null;
+  document.body.classList.remove('composing');
   if (!S.active) { dock.append(btn(T('newGame'), 'primary wide', openSetup)); return; }
   if (S.done) { dock.append(btn(T('again'), 'primary wide', openSetup), btn(T('replay'), 'ghost', downloadReplay)); return; }
   if (!S.human_turn) {
@@ -267,6 +301,7 @@ function renderDock() {
     if ($('auto').checked) timer = setTimeout(() => { timer = null; if (!busy && !$('setup').open) advance(); }, pause);
     return;
   }
+  document.body.classList.toggle('composing', talking());
   if (talking()) { composer(dock); return; }
   const kind = k => S.options.find(o => o.kind === k);
   if (S.phase === 'PROPOSE') {
@@ -444,6 +479,8 @@ function chips(box, items, key) {
   }
 }
 function renderSetup() {
+  $('mode-row').hidden = !!FIXED_MODE;
+  $('setup-title').textContent = T('setup.title') + (FIXED_MODE ? ` · ${T(`mode.${FIXED_MODE}.name`)}` : '');
   chips($('role-chips'), [['random', T('random')], ...['merlin', 'percival', 'servant', 'morgana', 'assassin'].map(r => [r, I18N.role(r.toUpperCase()), isEvilRole(r.toUpperCase()) ? 'evil' : 'good'])], 'role');
   chips($('mode-chips'), [['talk', T('mode.talk')], ['silent', T('mode.silent')]], 'mode');
   chips($('seat-chips'), [1, 2, 3, 4, 5, 6].map(n => [n, String(n)]), 'seat');
@@ -475,7 +512,7 @@ $('setup').addEventListener('cancel', e => { if (!S.active) e.preventDefault(); 
 $('new-btn').addEventListener('click', openSetup);
 $('rules-btn').addEventListener('click', () => $('rules').showModal());
 $('rules-ok').addEventListener('click', () => $('rules').close());
-setup.mode = pref('avalon_mode', 'talk') === 'silent' ? 'silent' : 'talk';
+setup.mode = FIXED_MODE || (pref('avalon_mode', 'talk') === 'silent' ? 'silent' : 'talk');
 $('auto').checked = pref('avalon_autoplay', 'on') === 'on';
 $('auto').addEventListener('change', () => { setPref('avalon_autoplay', $('auto').checked ? 'on' : 'off'); renderDock(); });
 $('spoken').checked = pref('avalon_spoken', 'on') === 'on';
@@ -494,5 +531,6 @@ I18N.onChange(() => { render(); if ($('setup').open) renderSetup(); });
 render();
 api('/api/state').then(s => {
   S = s; render();
-  if (!S.active) { setup.baseline = S.default_baseline || 0; openSetup(); }
+  if (!S.active) setup.baseline = S.default_baseline || 0;
+  if (!S.active || (FIXED_MODE && S.mode !== FIXED_MODE)) openSetup();  // a running game of the other kind: offer a new one
 }).catch(e => showErr(e.message));
