@@ -342,42 +342,52 @@ def message_stance(m: dict) -> dict:
             "promise": {str(k["seat"]): k["promise"] for k in m.get("promise") or []}}
 
 
-MOUTH = """You put one Avalon player's table statement into natural spoken {language}, in the first person, the way a \
-real player says it out loud at the table. You are a translator: the meaning is fixed.
+MOUTH = """You say one Avalon player's table statement out loud in {language}, in the first person, the way a real \
+player talks at the table: short, plain, colloquial. You are a translator, not an author: the meaning is fixed, the \
+wording is free.
 
-Keep EVERY statement and its exact meaning: the role the speaker claims, who is called good or evil (or which role), \
-the reason given in brackets, the suggested team with all its seat numbers, the vote conditions (voting against teams \
-with / without a player), agreeing or disagreeing with a player and what that means for that player's team, and \
-the conditional promises (the full condition, and what the speaker will say next round).
-Never add anything: no new opinion, reason, player, team member, greeting or filler, nothing about the table that the \
-statement does not say, and no words of doubt (maybe, I think, 可能, 感觉, 好像, 应该). Do not weaken or strengthen a statement. \
-Name players as {seat_form}. Keep it short: at most {limit}. Join the parts into flowing speech; do not use brackets or semicolons.
+Be as brief as you can:
+- Put statements of the same kind about several players into one clause ("1号、2号是坏人", "我同意3号和5号").
+- Say each thing once and leave out what follows by the rules of the table: agreeing with a player already means \
+approving that player's team, and disagreeing already means voting against it. Say only whom you agree or disagree \
+with, and the reason if one is given.
+- A reason in brackets becomes a few words ("看第2轮任务", "他指认了我").
+- No filler, no politeness, no "这轮我想说", nothing said twice.
+
+Keep the meaning exact: the role claimed; who is called good or evil (or which role) and the number of the quest \
+cited for it; every seat of a suggested team; the vote conditions (against teams with a player / without a player); \
+whom the speaker agrees or disagrees with; every conditional promise with its condition (this quest fails or \
+succeeds, the player being on it) and what the speaker will then say next round. Never add an opinion, a reason, a \
+player or a word of doubt (maybe, I think, 可能, 感觉, 好像, 应该), never weaken or strengthen a statement, never drop one. \
+Always name players by number as {seat_form}, not by "他/they" alone when it could be unclear. At most {limit}; shorter is better.
 
 Examples of the wording ({language}):
 {examples}"""
 _EXAMPLES = {
-    "zh": """我是忠臣；1 号是好人（依据第 2 轮任务记录） -> 我是忠臣。1号是好人，第2轮的任务结果能说明。
-3 号是坏人（依据身份信息） -> 从我的身份能看出来，3号是坏人。
-4 号是坏人（依据第 1 轮投票记录）；有 4 号的队我不赞成 -> 看第1轮的投票，4号是坏人，队里有4号我就投反对。
-推荐 2、3、6 号；没有 5 号的队我不赞成 -> 这轮我推荐2号、3号、6号上。另外队里没有5号我就投反对。
-同意 3 号，他推荐的队我赞成 -> 我同意3号，他推荐的那支队我会投赞成。
-不同意 6 号（他推荐的队里有我指认的人），他推荐的队我不赞成 -> 我不同意6号，他推荐的队里有我指认的坏人，那支队我投反对。
-不同意 2 号（他指认了我） -> 2号指认我是坏人，我不同意他。
-不同意 4 号（我们对同一人判断相反） -> 我不同意4号，我们俩对同一个人的判断正好相反。
-3 号若上本轮任务且失败，下轮我说他是坏人 -> 这轮要是3号上了任务而且任务失败，下一轮我就说他是坏人。
-本轮任务若成功，5、6 号谁在队里，下轮我说谁是好人 -> 这轮任务要是成功，5号和6号里谁在队里，下一轮我就说谁是好人。
-5 号是梅林 -> 我认定5号是梅林。""",
-    "en": """I am a Servant; Seat 1 is good (from the quest record of quest 2) -> I'm a Servant. Seat 1 is good, the result of quest 2 shows it.
-Seat 3 is evil (from my role) -> I can tell from my role that seat 3 is evil.
-Seat 4 is evil (from the vote record of quest 1); I reject any team with seat 4 -> Going by the votes in quest 1, seat 4 is evil, and I'll vote against any team with seat 4 on it.
-I suggest 2, 3, 6; I reject any team without seat 5 -> I suggest seats 2, 3 and 6 for this quest. And I'll vote against any team that leaves out seat 5.
-I agree with seat 3 and approve their team -> I agree with seat 3, and I'll approve the team they suggested.
-I disagree with seat 6 (their team has a player I accuse) and reject their team -> I disagree with seat 6. Their team has a player I call evil, so I'll vote against it.
-I disagree with seat 2 (they accused me) -> Seat 2 called me evil, and I disagree with them.
-I disagree with seat 4 (we judge a player in opposite ways) -> I disagree with seat 4. We judge the same player in opposite ways.
+    "zh": """我是忠臣；1 号是好人（依据第 2 轮任务记录） -> 我是忠臣。看第2轮任务，1号是好人。
+3 号是坏人（依据身份信息） -> 凭我的身份，3号是坏人。
+1 号是坏人（依据第 3 轮任务记录）；2 号是坏人（依据第 3 轮任务记录）；有 1 号的队我不赞成；有 2 号的队我不赞成 -> 看第3轮任务，1号、2号是坏人，有1号或2号的队我都不投。
+推荐 2、3、6 号；没有 5 号的队我不赞成 -> 我推荐2号、3号、6号。没有5号的队我不投。
+同意 3 号，他推荐的队我赞成 -> 我同意3号。
+同意 3 号，他推荐的队我赞成；同意 5 号，他推荐的队我赞成 -> 我同意3号和5号。
+不同意 6 号（他推荐的队里有我指认的人），他推荐的队我不赞成 -> 我不同意6号，他的队里有我指认的坏人。
+不同意 2 号（他指认了我） -> 2号指认我，我不同意2号。
+不同意 4 号（我们对同一人判断相反）；不同意 5 号（我们对同一人判断相反） -> 我不同意4号和5号，我们的判断相反。
+3 号若上本轮任务且失败，下轮我说他是坏人 -> 3号要是上了这轮任务还失败，下轮我说3号是坏人。
+本轮任务若成功，5、6 号谁在队里，下轮我说谁是好人 -> 这轮要是成功，5号、6号谁在队里，下轮我就说谁是好人。
+5 号是梅林 -> 5号是梅林。""",
+    "en": """I am a Servant; Seat 1 is good (from the quest record of quest 2) -> I'm a Servant. Quest 2 shows seat 1 is good.
+Seat 3 is evil (from my role) -> From my role, seat 3 is evil.
+Seat 1 is evil (from the quest record of quest 3); Seat 2 is evil (from the quest record of quest 3); I reject any team with seat 1; I reject any team with seat 2 -> Quest 3 shows seats 1 and 2 are evil. I reject any team with seat 1 or seat 2.
+I suggest 2, 3, 6; I reject any team without seat 5 -> I suggest seats 2, 3 and 6. No seat 5, no vote from me.
+I agree with seat 3 and approve their team -> I agree with seat 3.
+I agree with seat 3 and approve their team; I agree with seat 5 and approve their team -> I agree with seats 3 and 5.
+I disagree with seat 6 (their team has a player I accuse) and reject their team -> I disagree with seat 6: their team has a player I call evil.
+I disagree with seat 2 (they accused me) -> Seat 2 accused me. I disagree with seat 2.
+I disagree with seat 4 (we judge a player in opposite ways); I disagree with seat 5 (we judge a player in opposite ways) -> I disagree with seats 4 and 5: we judge the opposite way.
 If seat 3 goes on this quest and it fails, next round I call them evil -> If seat 3 goes on this quest and it fails, I'll call seat 3 evil next round.
-If this quest succeeds, next round I call good whoever of seats 5, 6 was on it -> If this quest succeeds, then next round I'll call good whichever of seats 5 and 6 was on it.
-Seat 5 is Merlin -> I say seat 5 is Merlin.""",
+If this quest succeeds, next round I call good whoever of seats 5, 6 was on it -> If this quest succeeds, next round I'll call good whichever of seats 5 and 6 was on it.
+Seat 5 is Merlin -> Seat 5 is Merlin.""",
 }
 
 
@@ -390,7 +400,7 @@ def polish(model: LanguageModel, m: dict, ctx: dict, lang: str, teams: dict | No
         return None
     zh = lang == "zh"
     system = MOUTH.format(language="Chinese" if zh else "English", seat_form='"3号"' if zh else '"seat 3"',
-                          limit="80 个汉字" if zh else "60 words", examples=_EXAMPLES["zh" if zh else "en"])
+                          limit="60 个汉字" if zh else "45 words", examples=_EXAMPLES["zh" if zh else "en"])
     try:
         text = model.chat(system, f"The speaker sits in seat {ctx['me']}.\nStatement: {template(m, lang, teams)}", SAY_SCHEMA, "sentence",
                           max_tokens=250, timeout=timeout).get("text")
